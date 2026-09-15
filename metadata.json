@@ -1,0 +1,6 @@
+{
+  "name": "Exam Prep Kanban",
+  "description": "Student exam preparation app that organizes course documents and PDFs on a Kanban board, advancing topics from Not Done to In Progress reading, and automatically progressing to the next topic until completion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
