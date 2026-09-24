@@ -35,15 +35,24 @@ export const AddTopicModal: React.FC<AddTopicModalProps> = ({
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
+    const input = e.target;
+    if (input.files && input.files[0]) {
       setIsUploading(true);
-      const doc = await parseUploadedFile(e.target.files[0]);
-      setAttachedDoc(doc);
-      if (!title) {
-        // Auto-populate title if empty
-        setTitle(doc.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '));
+      try {
+        const doc = await parseUploadedFile(input.files[0]);
+        setAttachedDoc(doc);
+        if (!title) {
+          // Auto-populate title if empty
+          setTitle(doc.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '));
+        }
+      } catch (err) {
+        console.error('Error parsing document:', err);
+        window.alert(`Could not read "${input.files[0].name}".`);
+      } finally {
+        // Always clear the spinner, even if parsing failed
+        setIsUploading(false);
+        input.value = '';
       }
-      setIsUploading(false);
     }
   };
 
@@ -57,7 +66,7 @@ export const AddTopicModal: React.FC<AddTopicModalProps> = ({
       order: Date.now(),
       status: 'not-done', // As specified: starts at Not Done!
       priority,
-      estimatedMinutes,
+      estimatedMinutes: Math.max(5, estimatedMinutes || 25),
       document: attachedDoc,
       summary: summary.trim() || undefined,
       keyConcepts: keyConcepts.map(c => ({
@@ -165,7 +174,7 @@ export const AddTopicModal: React.FC<AddTopicModalProps> = ({
                 <span>{isUploading ? 'Parsing document...' : 'Upload Word doc (.docx) or PDF'}</span>
                 <input
                   type="file"
-                  accept=".pdf,.docx,.doc,.txt,.md"
+                  accept=".pdf,.docx,.txt,.md"
                   onChange={handleFileUpload}
                   className="hidden"
                 />

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { parseUploadedFile } from '../utils/fileParser';
+import { findNextTopic } from '../utils/topics';
 
 interface StudyReaderModalProps {
   topic: Topic;
@@ -59,9 +60,37 @@ export const StudyReaderModal: React.FC<StudyReaderModalProps> = ({
     setIsTimerRunning(true);
   }, [topic.id]);
 
+  // PDFs are stored as data URLs (so they survive reloads); convert to a blob URL for the
+  // iframe, since browsers often refuse to render data: PDFs inside iframes.
+  // Old blob: URLs saved before this fix are dead after a reload and cannot be shown.
+  const pdfSource = topic.document?.type === 'pdf' ? topic.document.url : undefined;
+  const isExpiredPdf = !!pdfSource && pdfSource.startsWith('blob:');
+  const [pdfViewUrl, setPdfViewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pdfSource || !pdfSource.startsWith('data:')) {
+      setPdfViewUrl(null);
+      return;
+    }
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    fetch(pdfSource)
+      .then(res => res.blob())
+      .then(blob => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPdfViewUrl(objectUrl);
+      })
+      .catch(() => setPdfViewUrl(null));
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [pdfSource]);
+
   // Focus Timer interval
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
     if (isTimerRunning) {
       interval = setInterval(() => {
         setTimerSeconds(prev => prev + 1);
@@ -108,22 +137,28 @@ export const StudyReaderModal: React.FC<StudyReaderModalProps> = ({
 
   // Allow uploading or attaching a new document to this specific topic
   const handleAttachFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const parsedDoc = await parseUploadedFile(file);
-      onUpdateTopic({
-        ...topic,
-        document: parsedDoc,
-      });
+    const input = e.target;
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      try {
+        const parsedDoc = await parseUploadedFile(file);
+        onUpdateTopic({
+          ...topic,
+          document: parsedDoc,
+        });
+      } catch (err) {
+        console.error('Error attaching file:', err);
+        window.alert(`Could not read "${file.name}".`);
+      }
     }
+    // Reset so choosing the same file again still triggers onChange
+    input.value = '';
   };
 
   // Find next topic in sequence
+  // (same rule App uses in handleMarkDoneAndNext, so the preview matches what actually loads)
   const currentIdx = allCourseTopics.findIndex(t => t.id === topic.id);
-  const remainingIncomplete = allCourseTopics.filter(
-    t => t.id !== topic.id && t.status !== 'done'
-  );
-  const nextInSequence = allCourseTopics[currentIdx + 1] || remainingIncomplete[0];
+  const nextInSequence = findNextTopic(allCourseTopics, topic.id);
 
   const handleCompleteAndNext = () => {
     // Fire confetti celebration
@@ -160,7 +195,7 @@ export const StudyReaderModal: React.FC<StudyReaderModalProps> = ({
                 <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
                   {topic.status === 'in-progress' ? 'Reading Stage (Active)' : topic.status === 'done' ? 'Mastered' : 'Not Done'}
                 </span>
-                <span className="text-xs text-slate-400">Topic {topic.order} of {allCourseTopics.length}</span>
+                <span className="text-xs text-slate-400">Topic {currentIdx + 1} of {allCourseTopics.length}</span>
               </div>
               <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate" title={topic.title}>
                 {topic.title}
@@ -279,7 +314,7 @@ export const StudyReaderModal: React.FC<StudyReaderModalProps> = ({
                   <span>Attach PDF/Doc</span>
                   <input
                     type="file"
-                    accept=".pdf,.docx,.doc,.txt,.md"
+                    accept=".pdf,.docx,.txt,.md"
                     onChange={handleAttachFile}
                     className="hidden"
                   />
@@ -289,13 +324,21 @@ export const StudyReaderModal: React.FC<StudyReaderModalProps> = ({
 
             {/* Document Content Area */}
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50/40">
-              {topic.document?.url && topic.document.type === 'pdf' ? (
+              {isExpiredPdf ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                  <AlertCircle className="w-8 h-8 text-amber-500 mb-3" />
+                  <h3 className="text-base font-semibold text-slate-800 mb-1">PDF needs to be re-attached</h3>
+                  <p className="text-xs text-slate-500 max-w-md">
+                    This PDF was loaded in an earlier session and its preview link expired. Use "Attach PDF/Doc" above to load it again.
+                  </p>
+                </div>
+              ) : pdfViewUrl && topic.document?.type === 'pdf' ? (
                 /* PDF Embed / iFrame Viewer */
                 <div className="h-full flex flex-col">
                   <div className="mb-2 p-2 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs flex items-center justify-between">
                     <span>Previewing PDF: {topic.document.name}</span>
                     <a 
-                      href={topic.document.url} 
+                      href={pdfViewUrl} 
                       download={topic.document.name}
                       className="inline-flex items-center space-x-1 text-rose-700 hover:text-rose-900 font-medium underline"
                     >
@@ -304,7 +347,7 @@ export const StudyReaderModal: React.FC<StudyReaderModalProps> = ({
                     </a>
                   </div>
                   <iframe
-                    src={topic.document.url}
+                    src={pdfViewUrl}
                     className="w-full flex-1 rounded-lg border border-slate-200 bg-white shadow-xs"
                     title="PDF Viewer"
                   />
@@ -334,7 +377,7 @@ export const StudyReaderModal: React.FC<StudyReaderModalProps> = ({
                     <span>Upload Word Doc (.docx) or PDF</span>
                     <input
                       type="file"
-                      accept=".pdf,.docx,.doc,.txt,.md"
+                      accept=".pdf,.docx,.txt,.md"
                       onChange={handleAttachFile}
                       className="hidden"
                     />
@@ -484,7 +527,7 @@ export const StudyReaderModal: React.FC<StudyReaderModalProps> = ({
             {/* Bottom Panel Actions */}
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
               <span className="text-[11px] text-slate-500">
-                Status: <strong className="capitalize text-slate-800">{topic.status}</strong>
+                Status: <strong className="text-slate-800">{topic.status === 'in-progress' ? 'Reading' : topic.status === 'done' ? 'Done' : 'Not Done'}</strong>
               </span>
 
               <button

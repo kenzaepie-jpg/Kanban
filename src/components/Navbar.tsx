@@ -1,5 +1,6 @@
 import React from 'react';
 import { Course, Topic } from '../types';
+import { daysUntil } from '../utils/dates';
 import { 
   GraduationCap, 
   Calendar, 
@@ -44,11 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const percentComplete = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
   // Calculate days to exam
-  const examDate = new Date(activeCourse.examDate);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diffTime = examDate.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  const diffDays = daysUntil(activeCourse.examDate);
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
@@ -111,7 +108,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Calendar className="w-3.5 h-3.5 text-amber-600" />
               <span>
                 {diffDays > 0 ? (
-                  <><strong>{diffDays} days</strong> until exam</>
+                  <><strong>{diffDays} {diffDays === 1 ? 'day' : 'days'}</strong> until exam</>
                 ) : diffDays === 0 ? (
                   <strong className="text-amber-700">Exam is Today!</strong>
                 ) : (

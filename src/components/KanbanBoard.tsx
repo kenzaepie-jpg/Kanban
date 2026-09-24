@@ -154,16 +154,21 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e as unknown as React.DragEvent, topic.id)}
-                  className="cursor-grab active:cursor-grabbing"
                 >
-                  <TopicCard
-                    topic={topic}
-                    onOpenReader={onOpenReader}
-                    onMoveStatus={onMoveStatus}
-                    onDeleteTopic={onDeleteTopic}
-                  />
+                  {/* Native drag handlers live on a plain div: motion.div treats onDragStart
+                      as its own gesture prop and never passes it to the DOM element */}
+                  <div
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, topic.id)}
+                    className="cursor-grab active:cursor-grabbing"
+                  >
+                    <TopicCard
+                      topic={topic}
+                      onOpenReader={onOpenReader}
+                      onMoveStatus={onMoveStatus}
+                      onDeleteTopic={onDeleteTopic}
+                    />
+                  </div>
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -216,16 +221,21 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e as unknown as React.DragEvent, topic.id)}
-                  className="cursor-grab active:cursor-grabbing"
                 >
-                  <TopicCard
-                    topic={topic}
-                    onOpenReader={onOpenReader}
-                    onMoveStatus={onMoveStatus}
-                    onDeleteTopic={onDeleteTopic}
-                  />
+                  {/* Native drag handlers live on a plain div: motion.div treats onDragStart
+                      as its own gesture prop and never passes it to the DOM element */}
+                  <div
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, topic.id)}
+                    className="cursor-grab active:cursor-grabbing"
+                  >
+                    <TopicCard
+                      topic={topic}
+                      onOpenReader={onOpenReader}
+                      onMoveStatus={onMoveStatus}
+                      onDeleteTopic={onDeleteTopic}
+                    />
+                  </div>
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -276,16 +286,21 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e as unknown as React.DragEvent, topic.id)}
-                  className="cursor-grab active:cursor-grabbing"
                 >
-                  <TopicCard
-                    topic={topic}
-                    onOpenReader={onOpenReader}
-                    onMoveStatus={onMoveStatus}
-                    onDeleteTopic={onDeleteTopic}
-                  />
+                  {/* Native drag handlers live on a plain div: motion.div treats onDragStart
+                      as its own gesture prop and never passes it to the DOM element */}
+                  <div
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, topic.id)}
+                    className="cursor-grab active:cursor-grabbing"
+                  >
+                    <TopicCard
+                      topic={topic}
+                      onOpenReader={onOpenReader}
+                      onMoveStatus={onMoveStatus}
+                      onDeleteTopic={onDeleteTopic}
+                    />
+                  </div>
                 </motion.div>
               ))}
             </AnimatePresence>

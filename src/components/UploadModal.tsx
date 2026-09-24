@@ -64,6 +64,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       const filesArr = Array.from(e.target.files);
       setUploadedFiles(prev => [...prev, ...filesArr]);
     }
+    // Reset so re-selecting a file that was removed from the queue still fires onChange
+    e.target.value = '';
   };
 
   const removeFile = (idx: number) => {
@@ -102,7 +104,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             .trim();
 
           // Extract any bullet points from doc if text/docx
-          const rawDocText = docAttachment.content?.replace(/<[^>]*>/g, ' ') || '';
+          // (block-level tags become line breaks so bullets stay on separate lines for the parser)
+          const rawDocText = (docAttachment.content || '')
+            .replace(/<\/(p|li|h[1-6]|div|pre)>|<br\s*\/?>/gi, '\n')
+            .replace(/<li[^>]*>/gi, '\n- ')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
           const concepts = extractTopicsFromText(rawDocText)[0]?.concepts || [];
 
           newTopicsList.push({
@@ -242,7 +249,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.docx,.doc,.txt,.md"
+                  accept=".pdf,.docx,.txt,.md"
                   onChange={handleFileSelect}
                   className="hidden"
                 />

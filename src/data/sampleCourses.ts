@@ -1,4 +1,5 @@
 import { Course, Topic } from '../types';
+import { toLocalISODate } from '../utils/dates';
 
 export const SAMPLE_COURSES: Course[] = [
   {
@@ -6,7 +7,7 @@ export const SAMPLE_COURSES: Course[] = [
     title: 'Cellular Biology & Genetics Final',
     code: 'BIO-101',
     description: 'Comprehensive exam covering molecular genetics, cellular respiration, and cell division.',
-    examDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 5 days from now
+    examDate: toLocalISODate(new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)), // 5 days from now
     color: '#059669', // Emerald
     createdAt: new Date().toISOString(),
   },
@@ -15,7 +16,7 @@ export const SAMPLE_COURSES: Course[] = [
     title: 'Distributed Systems & Cloud Architecture',
     code: 'CS-401',
     description: 'Midterm exam covering consensus protocols, RPCs, replication, and CAP theorem.',
-    examDate: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 8 days from now
+    examDate: toLocalISODate(new Date(Date.now() + 8 * 24 * 60 * 60 * 1000)), // 8 days from now
     color: '#4f46e5', // Indigo
     createdAt: new Date().toISOString(),
   },
@@ -24,7 +25,7 @@ export const SAMPLE_COURSES: Course[] = [
     title: 'Constitutional Law & Civil Liberties',
     code: 'LAW-202',
     description: 'Judicial review, commerce clause, 14th amendment substantive due process.',
-    examDate: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    examDate: toLocalISODate(new Date(Date.now() + 12 * 24 * 60 * 60 * 1000)), // 12 days from now
     color: '#d97706', // Amber
     createdAt: new Date().toISOString(),
   },
@@ -335,7 +336,7 @@ export const SAMPLE_TOPICS: Topic[] = [
       content: `<h2>Lecture: Logical Clocks & Vector Time</h2>
 <p>Physical clocks cannot be perfectly synchronized across distributed machines due to clock skew and network jitter.</p>
 <h3>Lamport Timestamps</h3>
-<p>Assigns a monotonically increasing scalar counter to each event. Defines the happens-before relation: if a → b, then L(a) < L(b). However, the converse is NOT true (L(a) < L(b) does NOT imply a → b).</p>
+<p>Assigns a monotonically increasing scalar counter to each event. Defines the happens-before relation: if a → b, then L(a) &lt; L(b). However, the converse is NOT true (L(a) &lt; L(b) does NOT imply a → b).</p>
 <h3>Vector Clocks</h3>
 <p>Each node maintains an array of clocks V where V[i] is the logical time at process i.</p>
 <ul>

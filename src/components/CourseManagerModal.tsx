@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Course } from '../types';
+import { daysUntil, toLocalISODate } from '../utils/dates';
 import { X, Plus, Calendar, GraduationCap, Trash2, Check } from 'lucide-react';
 
 interface CourseManagerModalProps {
@@ -34,7 +35,7 @@ export const CourseManagerModal: React.FC<CourseManagerModalProps> = ({
   const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
   const [examDate, setExamDate] = useState(
-    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    toLocalISODate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
   );
   const [color, setColor] = useState(PRESET_COLORS[1]);
 
@@ -89,9 +90,7 @@ export const CourseManagerModal: React.FC<CourseManagerModalProps> = ({
             </label>
             {courses.map((c) => {
               const isSelected = c.id === activeCourseId;
-              const daysLeft = Math.ceil(
-                (new Date(c.examDate).getTime() - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24)
-              );
+              const daysLeft = daysUntil(c.examDate);
 
               return (
                 <div
@@ -123,7 +122,7 @@ export const CourseManagerModal: React.FC<CourseManagerModalProps> = ({
                         <span>Exam: {c.examDate}</span>
                         <span>•</span>
                         <span className="font-medium text-slate-600">
-                          {daysLeft > 0 ? `${daysLeft} days away` : 'Exam today or passed'}
+                          {daysLeft > 0 ? `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} away` : daysLeft === 0 ? 'Exam is today!' : 'Exam passed'}
                         </span>
                       </div>
                     </div>

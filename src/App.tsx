@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Course, Topic, KanbanStatus } from './types';
 import { SAMPLE_COURSES, SAMPLE_TOPICS } from './data/sampleCourses';
 import { Navbar } from './components/Navbar';
@@ -8,6 +8,8 @@ import { UploadModal } from './components/UploadModal';
 import { AddTopicModal } from './components/AddTopicModal';
 import { CourseManagerModal } from './components/CourseManagerModal';
 import { ExamCelebrationModal } from './components/ExamCelebrationModal';
+import { daysUntil } from './utils/dates';
+import { findNextTopic, nextOrderForCourse } from './utils/topics';
 import { 
   BookOpen, 
   Calendar, 
@@ -26,10 +28,29 @@ const STORAGE_KEY_COURSES = 'examprep_courses_v1';
 const STORAGE_KEY_TOPICS = 'examprep_topics_v1';
 const STORAGE_KEY_ACTIVE_COURSE = 'examprep_active_course_v1';
 
+// localStorage can throw (quota exceeded by large PDFs, private mode). An error thrown
+// inside useEffect would crash the whole app, so writes report failure instead.
+function safeSetItem(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeGetItem(key: string): string | null {
+  try {
+    return safeGetItem(key);
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   // Initialize state with localStorage or defaults
   const [courses, setCourses] = useState<Course[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_COURSES);
+    const saved = safeGetItem(STORAGE_KEY_COURSES);
     if (saved) {
       try { return JSON.parse(saved); } catch { /* ignore */ }
     }
@@ -37,13 +58,13 @@ export default function App() {
   });
 
   const [activeCourseId, setActiveCourseId] = useState<string>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_COURSE);
+    const saved = safeGetItem(STORAGE_KEY_ACTIVE_COURSE);
     if (saved) return saved;
     return courses[0]?.id || 'course-bio-101';
   });
 
   const [topics, setTopics] = useState<Topic[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_TOPICS);
+    const saved = safeGetItem(STORAGE_KEY_TOPICS);
     if (saved) {
       try { return JSON.parse(saved); } catch { /* ignore */ }
     }
@@ -60,24 +81,30 @@ export default function App() {
   // Toast notification
   const [toastMessage, setToastMessage] = useState<{ text: string; type?: 'info' | 'success' } | null>(null);
 
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showToast = (text: string, type: 'info' | 'success' = 'info') => {
     setToastMessage({ text, type });
-    setTimeout(() => {
+    // Clear the previous timer, otherwise it would hide this newer toast early
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
     }, 4000);
   };
 
   // Persist to localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_COURSES, JSON.stringify(courses));
+    safeSetItem(STORAGE_KEY_COURSES, JSON.stringify(courses));
   }, [courses]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_TOPICS, JSON.stringify(topics));
+    if (!safeSetItem(STORAGE_KEY_TOPICS, JSON.stringify(topics))) {
+      showToast('Storage full: recent changes will not survive a reload. Remove some large PDFs.');
+    }
   }, [topics]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_ACTIVE_COURSE, activeCourseId);
+    safeSetItem(STORAGE_KEY_ACTIVE_COURSE, activeCourseId);
   }, [activeCourseId]);
 
   // Current active course
@@ -103,8 +130,15 @@ export default function App() {
 
   // Handler: Move topic to a new status
   const handleMoveStatus = (topicId: string, newStatus: KanbanStatus) => {
-    setTopics(prev => {
-      const updated = prev.map(t => {
+    // Check if this move completes the course (done outside the state updater,
+    // because updaters must be pure and React may run them twice)
+    const courseTopics = topics.filter(t => t.courseId === activeCourse.id);
+    const completesCourse = newStatus === 'done' &&
+      courseTopics.length > 0 &&
+      courseTopics.every(t => t.id === topicId || t.status === 'done');
+
+    setTopics(prev =>
+      prev.map(t => {
         if (t.id === topicId) {
           return {
             ...t,
@@ -114,17 +148,12 @@ export default function App() {
           };
         }
         return t;
-      });
+      })
+    );
 
-      // Check if all topics in this course are now done
-      const courseTopicsAfter = updated.filter(t => t.courseId === activeCourse.id);
-      const allDone = courseTopicsAfter.length > 0 && courseTopicsAfter.every(t => t.status === 'done');
-      if (allDone && newStatus === 'done') {
-        setTimeout(() => setIsCelebrationOpen(true), 300);
-      }
-
-      return updated;
-    });
+    if (completesCourse) {
+      setTimeout(() => setIsCelebrationOpen(true), 300);
+    }
 
     const statusLabel = newStatus === 'in-progress' ? 'Reading Stage (Active)' : newStatus === 'done' ? 'Done & Mastered' : 'Not Done';
     showToast(`Topic moved to ${statusLabel}`, newStatus === 'done' ? 'success' : 'info');
@@ -168,13 +197,12 @@ export default function App() {
 
     // 2. Find the NEXT topic in the same course to study:
     // Priority: Next topic in 'in-progress' OR next in 'not-done'
-    const otherIncompleteTopics = updatedTopics
-      .filter(t => t.courseId === activeCourse.id && t.id !== currentTopicId && t.status !== 'done')
-      .sort((a, b) => a.order - b.order);
+    const nextTopic = findNextTopic(
+      updatedTopics.filter(t => t.courseId === activeCourse.id),
+      currentTopicId
+    );
 
-    if (otherIncompleteTopics.length > 0) {
-      // Pick the next topic
-      const nextTopic = otherIncompleteTopics[0];
+    if (nextTopic) {
 
       // Auto-move next topic to 'in-progress' (the middle stage)
       const finalTopics = updatedTopics.map(t => {
@@ -189,7 +217,7 @@ export default function App() {
       });
 
       setTopics(finalTopics);
-      const activatedNext = { ...nextTopic, status: 'in-progress' as KanbanStatus };
+      const activatedNext = finalTopics.find(t => t.id === nextTopic.id)!;
       setActiveReadingTopic(activatedNext);
 
       showToast(`Mastered "${currentTopic?.title}"! Auto-loaded next topic: "${nextTopic.title}" (Moved to Reading Stage)`, 'success');
@@ -213,11 +241,18 @@ export default function App() {
 
   // Handler: Add multiple topics (from upload or syllabus)
   const handleAddMultipleTopics = (newTopicsList: Omit<Topic, 'id'>[]) => {
-    const created: Topic[] = newTopicsList.map((t, idx) => ({
-      ...t,
-      id: 'topic-' + Date.now() + '-' + idx,
-      order: currentCourseTopics.length + idx + 1,
-    }));
+    // Topics may target a course other than the active one (Upload modal has a course picker),
+    // so the order is computed per target course.
+    const nextOrders: Record<string, number> = {};
+    const created: Topic[] = newTopicsList.map((t, idx) => {
+      const order = nextOrders[t.courseId] ?? nextOrderForCourse(topics, t.courseId);
+      nextOrders[t.courseId] = order + 1;
+      return {
+        ...t,
+        id: 'topic-' + Date.now() + '-' + idx,
+        order,
+      };
+    });
 
     setTopics(prev => [...prev, ...created]);
     showToast(`Added ${created.length} new topics in "Not Done" ready for study!`, 'success');
@@ -228,7 +263,7 @@ export default function App() {
     const created: Topic = {
       ...newTopic,
       id: 'topic-' + Date.now(),
-      order: currentCourseTopics.length + 1,
+      order: nextOrderForCourse(topics, newTopic.courseId),
     };
     setTopics(prev => [...prev, created]);
     showToast(`Created topic "${created.title}" in Not Done`, 'success');
@@ -312,10 +347,7 @@ export default function App() {
   };
 
   // Calculate exam countdown days
-  const examDateObj = new Date(activeCourse.examDate);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diffDays = Math.ceil((examDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = daysUntil(activeCourse.examDate);
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-indigo-100 selection:text-indigo-900">
@@ -355,7 +387,7 @@ export default function App() {
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
                   <span>Target Exam: {activeCourse.examDate}</span>
                   <span className="font-bold text-amber-600">
-                    ({diffDays > 0 ? `${diffDays} days left` : 'Exam today or passed'})
+                    ({diffDays > 1 ? `${diffDays} days left` : diffDays === 1 ? '1 day left' : diffDays === 0 ? 'Exam is today!' : 'Exam passed'})
                   </span>
                 </span>
               </div>
