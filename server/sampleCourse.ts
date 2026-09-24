@@ -1,8 +1,3 @@
-import { Course, StoredDocument, Topic } from '../types';
-import { saveDocument } from './fileStore';
-import { newId } from './storage';
-import { makeTopic } from './topics';
-
 // A small ready-made course so a new student can try the study board straight away.
 
 const LESSONS: { title: string; html: string }[] = [
@@ -65,26 +60,9 @@ const LESSONS: { title: string; html: string }[] = [
   },
 ];
 
-export async function createSampleCourse(): Promise<{ course: Course; topics: Topic[] }> {
-  const course: Course = {
-    id: newId('course'),
-    title: 'Introduction to Agile',
-    code: 'SWE-201',
-    color: '#2563eb',
-    createdAt: new Date().toISOString(),
-  };
-
-  const topics: Topic[] = [];
-  for (const [i, lesson] of LESSONS.entries()) {
-    const doc: StoredDocument = {
-      id: newId('doc'),
-      name: `${lesson.title}.docx`,
-      type: 'docx',
-      size: lesson.html.length,
-      html: lesson.html,
-    };
-    await saveDocument(doc);
-    topics.push(makeTopic(course.id, lesson.title, i + 1, doc));
-  }
-  return { course, topics };
-}
+export const SAMPLE_COURSE = {
+  title: 'Introduction to Agile',
+  code: 'SWE-201',
+  color: '#2563eb',
+  lessons: LESSONS,
+};

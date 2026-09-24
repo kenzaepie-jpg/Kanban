@@ -22,38 +22,99 @@ A study planner for students built on the **Kanban** principle: *stop starting, 
 - Per-topic notes and study time
 - A one-click sample course for trying the app
 
+## Tech stack
+
+- **Frontend:** React 19, TypeScript, Tailwind CSS, Vite
+- **Backend:** Node.js, Express, TypeScript (`server/`)
+- **Database:** MySQL 8+ (tables in [`server/schema.sql`](server/schema.sql))
+- **Files:** uploaded PDFs, Word and text files are saved in `uploads/`; the database stores only their paths
+
 ## Run locally
 
+1. Install and start **MySQL 8 or newer**.
+2. Copy `.env.example` to `.env` and set your MySQL password:
+   ```
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_USER=root
+   DB_PASSWORD=your_mysql_password
+   DB_NAME=gostudy
+   ```
+3. Install and run:
+   ```bash
+   npm install
+   npm run dev      # API on :4000 + website on http://localhost:3000
+   ```
+   On first start the server creates the `gostudy` database and its tables.
+
+Other scripts:
+
 ```bash
-npm install
-npm run dev      # http://localhost:3000
-npm run lint     # type-check
-npm run build
+npm run lint     # type-check frontend and backend
+npm run build    # build the frontend into dist/
+npm start        # production: one server on :4000 serving the API and the built site
 ```
 
-## Where data is stored
+## Database
 
-There is no backend yet, so everything stays **in the browser**:
+| Table      | Holds |
+| ---------- | ----- |
+| `users`    | Name, email, level, bcrypt password hash, break-reminder setting |
+| `sessions` | Login sessions (a SHA-256 hash of the httpOnly cookie token) |
+| `courses`  | A student's courses; `on_board_at` is set while the course is on the study board |
+| `topics`   | Kanban cards: column (`course` / `in-process` / `done`), reading progress, notes, study time, file info |
 
-- Accounts live in `localStorage`, with passwords salted and hashed (PBKDF2-SHA-256).
-- Courses, topics and progress are saved per user in `localStorage`.
-- Uploaded files are saved in IndexedDB, so large PDFs don't hit the localStorage limit.
+The server enforces the study rules in the database:
+- **WIP limit.** Beginning a course locks the student's courses (`SELECT … FOR UPDATE`) and refuses a third one (HTTP 409).
+- **Completion.** When the last topic of a course on the board is done, the course is marked complete and leaves the board.
+- **Ownership.** Topics can only be moved while their course is on the board, and every query is scoped to the signed-in student.
 
-This means accounts don't sync between browsers or devices. Sign-in uses the Web Crypto API, so open the app on `localhost` or over HTTPS.
+## API
+
+All routes except `/api/auth/*` need the session cookie.
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| POST | `/api/auth/register` | Create account `{name, email, level, password}` |
+| POST | `/api/auth/login` | Sign in `{email, password}` |
+| POST | `/api/auth/logout` | Sign out |
+| GET | `/api/auth/me` | Current student |
+| GET | `/api/data` | All courses, topics, board and settings |
+| PATCH | `/api/settings` | `{breakReminder}` |
+| POST | `/api/courses` | Create a course (multipart: `title`, `code`, `color`, `titles`, `files[]`) |
+| POST | `/api/courses/sample` | Add the sample course |
+| POST | `/api/courses/:id/topics` | Add topics (multipart: `titles`, `files[]`) |
+| POST | `/api/courses/:id/begin` | Put the course on the study board (WIP limit 2) |
+| POST | `/api/courses/:id/restart` | Reset a course's progress |
+| DELETE | `/api/courses/:id` | Delete a course, its topics and files |
+| PATCH | `/api/topics/:id` | Save `{progress, notes}` |
+| POST | `/api/topics/:id/move` | Move to a column `{status}` |
+| POST | `/api/topics/:id/done-next` | Mark done and start the next topic |
+| POST | `/api/topics/:id/time` | Add study time `{seconds}` |
+| POST | `/api/topics/:id/file` | Attach a file (multipart: `file`) |
+| GET | `/api/topics/:id/file` | Download the topic's file |
+| DELETE | `/api/topics/:id` | Delete a topic |
 
 ## Project structure
 
 ```
+server/
+├── index.ts         # Express app: API routes, serves dist/ in production
+├── config.ts        # Settings from .env
+├── db.ts            # MySQL pool, auto-creates database + schema
+├── schema.sql       # Table definitions
+├── auth.ts          # Register / login / logout, session middleware
+├── study.ts         # Courses, topics, uploads, WIP limit, completion rules
+├── sampleCourse.ts  # Demo course content
+└── http.ts          # Error handling helpers
 src/
-├── App.tsx                  # Auth gate + workspace state (board rules, WIP limit, break reminder)
+├── App.tsx                  # Session check, workspace state, calls to the API
 ├── types.ts                 # User, Course, Topic, UserData
 ├── lib/
-│   ├── auth.ts              # Register / login / logout
-│   ├── fileStore.ts         # IndexedDB storage for uploaded files
-│   ├── fileParser.ts        # PDF / Word / text parsing
+│   ├── api.ts               # fetch wrapper
+│   ├── auth.ts              # Auth API calls
+│   ├── fileParser.ts        # Renders PDF / Word / text files in the reader
 │   ├── progress.ts          # WIP_LIMIT, progress %, course state
-│   ├── topics.ts            # Building topics from uploads
-│   ├── sampleCourse.ts      # Demo course
 │   ├── theme.ts             # Light / dark mode
 │   └── useStudyClock.ts     # Session timer for break reminders
 └── components/

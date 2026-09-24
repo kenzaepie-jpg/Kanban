@@ -1,20 +1,13 @@
 /** Kanban columns on the study board: COURSE (not started) → IN PROCESS → DONE. */
 export type TopicStatus = 'course' | 'in-process' | 'done';
 
-export type DocType = 'pdf' | 'docx' | 'text' | 'markdown';
+export type DocType = 'pdf' | 'docx' | 'text' | 'markdown' | 'html';
 
-/** Lightweight file info kept on the topic; the file itself lives in IndexedDB. */
+/** Info about a topic's file; the file itself is stored on the server. */
 export interface DocumentMeta {
-  id: string;
   name: string;
   type: DocType;
   size: number;
-}
-
-/** What is saved in IndexedDB: PDFs keep their Blob, everything else is rendered HTML. */
-export interface StoredDocument extends DocumentMeta {
-  blob?: Blob;
-  html?: string;
 }
 
 export interface User {
@@ -23,11 +16,6 @@ export interface User {
   email: string;
   level: string;
   createdAt: string;
-}
-
-export interface StoredUser extends User {
-  passwordHash: string;
-  salt: string;
 }
 
 export interface Course {

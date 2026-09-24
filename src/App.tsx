@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { Course, Topic, TopicStatus, User, UserData } from './types';
-import { currentUser, logout } from './lib/auth';
-import { deleteDocuments } from './lib/fileStore';
-import { WIP_LIMIT, courseState, findNextTopic, isCourseComplete, topicsOf } from './lib/progress';
-import { createSampleCourse } from './lib/sampleCourse';
-import { newId, readJSON, writeJSON } from './lib/storage';
+import { api, setUnauthorizedHandler } from './lib/api';
+import { fetchCurrentUser, logout } from './lib/auth';
+import { WIP_LIMIT, courseState, topicsOf } from './lib/progress';
 import { Theme, useTheme } from './lib/theme';
-import { buildTopics, nextOrder } from './lib/topics';
 import { BREAK_AFTER_SECONDS, BREAK_LENGTH_SECONDS, useStudyClock } from './lib/useStudyClock';
 import { AuthPage } from './components/AuthPage';
 import { BreakModal } from './components/BreakModal';
@@ -18,10 +16,45 @@ import { ReaderModal } from './components/ReaderModal';
 import { StudyBoard } from './components/StudyBoard';
 import { Toast, ToastData } from './components/common';
 
+function FullPageMessage({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-4 text-center text-slate-500 dark:text-slate-400">
+      {children}
+    </div>
+  );
+}
+
 export default function App() {
   const [theme, toggleTheme] = useTheme();
-  const [user, setUser] = useState<User | null>(currentUser);
+  // undefined = still checking the session cookie
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [bootError, setBootError] = useState('');
 
+  useEffect(() => {
+    fetchCurrentUser()
+      .then(setUser)
+      .catch(err => setBootError(err instanceof Error ? err.message : 'Could not reach the server.'));
+    setUnauthorizedHandler(() => setUser(null));
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  if (bootError) {
+    return (
+      <FullPageMessage>
+        <p className="font-semibold text-slate-800 dark:text-slate-100">{bootError}</p>
+        <button onClick={() => location.reload()} className="text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400">
+          Try again
+        </button>
+      </FullPageMessage>
+    );
+  }
+  if (user === undefined) {
+    return (
+      <FullPageMessage>
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      </FullPageMessage>
+    );
+  }
   if (!user) {
     return <AuthPage onAuthenticated={setUser} theme={theme} onToggleTheme={toggleTheme} />;
   }
@@ -32,21 +65,12 @@ export default function App() {
       user={user}
       theme={theme}
       onToggleTheme={toggleTheme}
-      onLogout={() => {
-        logout();
+      onLogout={async () => {
+        await logout();
         setUser(null);
       }}
     />
   );
-}
-
-const EMPTY_DATA: UserData = { courses: [], topics: [], board: [], settings: { breakReminder: true } };
-
-const dataKey = (userId: string) => `gostudy_data_${userId}`;
-
-function loadData(userId: string): UserData {
-  const saved = readJSON<Partial<UserData>>(dataKey(userId), {});
-  return { ...EMPTY_DATA, ...saved, settings: { ...EMPTY_DATA.settings, ...saved.settings } };
 }
 
 interface WorkspaceProps {
@@ -56,9 +80,37 @@ interface WorkspaceProps {
   onLogout: () => void;
 }
 
-function Workspace({ user, theme, onToggleTheme, onLogout }: WorkspaceProps) {
-  const [data, setData] = useState<UserData>(() => loadData(user.id));
-  const [view, setView] = useState<View>(() => (loadData(user.id).board.length > 0 ? 'board' : 'dashboard'));
+/** Server responses for changes that affect the board carry the student's full, updated data. */
+interface DataResponse {
+  data: UserData;
+  completedCourse?: boolean;
+  nextTopicId?: string | null;
+}
+
+function Workspace(props: WorkspaceProps) {
+  const [data, setData] = useState<UserData | null>(null);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    api<DataResponse>('/api/data')
+      .then(r => setData(r.data))
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Could not load your courses.'));
+  }, []);
+
+  if (loadError) return <FullPageMessage><p>{loadError}</p></FullPageMessage>;
+  if (!data) {
+    return (
+      <FullPageMessage>
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      </FullPageMessage>
+    );
+  }
+  return <LoadedWorkspace {...props} initialData={data} />;
+}
+
+function LoadedWorkspace({ user, theme, onToggleTheme, onLogout, initialData }: WorkspaceProps & { initialData: UserData }) {
+  const [data, setData] = useState<UserData>(initialData);
+  const [view, setView] = useState<View>(initialData.board.length > 0 ? 'board' : 'dashboard');
 
   const [modal, setModal] = useState<'add-course' | 'begin-study' | null>(null);
   const [managedCourseId, setManagedCourseId] = useState<string | null>(null);
@@ -70,29 +122,12 @@ function Workspace({ user, theme, onToggleTheme, onLogout }: WorkspaceProps) {
   const notify = useCallback((text: string, tone: ToastData['tone'] = 'info') => {
     setToast({ id: Date.now(), text, tone });
     clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 4000);
+    toastTimer.current = setTimeout(() => setToast(null), 4500);
   }, []);
-
-  // Persist this student's data
-  useEffect(() => {
-    if (!writeJSON(dataKey(user.id), data)) {
-      notify('Could not save your progress: browser storage is full or blocked.', 'error');
-    }
-  }, [data, user.id, notify]);
-
-  // A course whose topics are all done leaves the board and frees its WIP slot
-  useEffect(() => {
-    const finished = data.board.filter(id => isCourseComplete(topicsOf(data, id)));
-    if (finished.length === 0) return;
-    const completedAt = new Date().toISOString();
-    setData(d => ({
-      ...d,
-      board: d.board.filter(id => !finished.includes(id)),
-      courses: d.courses.map(c => (finished.includes(c.id) ? { ...c, completedAt } : c)),
-    }));
-    setReaderTopicId(null);
-    setCompletedCourseId(finished[0]);
-  }, [data]);
+  const notifyError = useCallback(
+    (err: unknown) => notify(err instanceof Error ? err.message : 'Something went wrong.', 'error'),
+    [notify],
+  );
 
   /* ---------------- Break reminder ---------------- */
 
@@ -106,136 +141,167 @@ function Workspace({ user, theme, onToggleTheme, onLogout }: WorkspaceProps) {
     if (data.settings.breakReminder && sessionSeconds >= BREAK_AFTER_SECONDS) setBreakPrompt(true);
   }, [data.settings.breakReminder, sessionSeconds]);
 
-  /* ---------------- Data helpers ---------------- */
+  /* ---------------- Reading progress & notes (saved in the background) ---------------- */
 
-  const updateTopic = useCallback((topicId: string, patch: Partial<Topic>) => {
-    setData(d => ({ ...d, topics: d.topics.map(t => (t.id === topicId ? { ...t, ...patch } : t)) }));
-  }, []);
+  // Scrolling changes progress many times a second, so edits are batched per topic
+  const pending = useRef(new Map<string, Partial<Topic>>());
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const addStudyTime = useCallback((topicId: string, seconds: number) => {
-    setData(d => ({
-      ...d,
-      topics: d.topics.map(t => (t.id === topicId ? { ...t, secondsStudied: t.secondsStudied + seconds } : t)),
-    }));
-  }, []);
-
-  const statusPatch = (topic: Topic, status: TopicStatus): Partial<Topic> => {
-    const now = new Date().toISOString();
-    if (status === 'done') return { status, progress: 100, completedAt: now };
-    if (status === 'in-process') {
-      // Reopening a finished topic shouldn't still read as 100% complete
-      return { status, startedAt: topic.startedAt ?? now, completedAt: undefined, progress: topic.status === 'done' ? 99 : topic.progress };
+  const flushPending = useCallback(() => {
+    clearTimeout(flushTimer.current);
+    for (const [topicId, patch] of pending.current) {
+      api(`/api/topics/${topicId}`, { method: 'PATCH', json: patch }).catch(notifyError);
     }
-    return { status, progress: 0, completedAt: undefined };
+    pending.current.clear();
+  }, [notifyError]);
+
+  useEffect(() => {
+    window.addEventListener('pagehide', flushPending);
+    return () => {
+      window.removeEventListener('pagehide', flushPending);
+      flushPending();
+    };
+  }, [flushPending]);
+
+  const updateTopic = useCallback(
+    (topicId: string, patch: Partial<Pick<Topic, 'progress' | 'notes'>>) => {
+      setData(d => ({ ...d, topics: d.topics.map(t => (t.id === topicId ? { ...t, ...patch } : t)) }));
+      pending.current.set(topicId, { ...pending.current.get(topicId), ...patch });
+      clearTimeout(flushTimer.current);
+      flushTimer.current = setTimeout(flushPending, 800);
+    },
+    [flushPending],
+  );
+
+  const addStudyTime = useCallback(
+    (topicId: string, seconds: number) => {
+      setData(d => ({
+        ...d,
+        topics: d.topics.map(t => (t.id === topicId ? { ...t, secondsStudied: t.secondsStudied + seconds } : t)),
+      }));
+      api(`/api/topics/${topicId}/time`, { json: { seconds } }).catch(notifyError);
+    },
+    [notifyError],
+  );
+
+  /* ---------------- Changes that the server decides on ---------------- */
+
+  /** Sends a change to the server and replaces local data with the server's result. */
+  const mutate = async (path: string, options: Parameters<typeof api>[1] = { method: 'POST' }): Promise<DataResponse | null> => {
+    flushPending(); // don't let unsaved progress be overwritten
+    try {
+      const result = await api<DataResponse>(path, options);
+      setData(result.data);
+      return result;
+    } catch (err) {
+      notifyError(err);
+      return null;
+    }
   };
 
-  const moveTopic = (topicId: string, status: TopicStatus) => {
+  const celebrate = (courseId: string) => {
+    setReaderTopicId(null);
+    setCompletedCourseId(courseId);
+  };
+
+  const moveTopic = async (topicId: string, status: TopicStatus) => {
     const topic = data.topics.find(t => t.id === topicId);
     if (!topic) return;
-    updateTopic(topicId, statusPatch(topic, status));
-    if (status === 'done') notify(`"${topic.title}" is done!`, 'success');
+    const result = await mutate(`/api/topics/${topicId}/move`, { json: { status } });
+    if (!result) return;
+    if (result.completedCourse) celebrate(topic.courseId);
+    else if (status === 'done') notify(`"${topic.title}" is done!`, 'success');
   };
 
   /** Marks a topic done and opens the next one in the same course, if any. */
-  const markDoneAndNext = (topicId: string) => {
+  const markDoneAndNext = async (topicId: string) => {
     const topic = data.topics.find(t => t.id === topicId);
     if (!topic) return;
-    const next = findNextTopic(topicsOf(data, topic.courseId), topicId);
-    setData(d => ({
-      ...d,
-      topics: d.topics.map(t => {
-        if (t.id === topicId) return { ...t, ...statusPatch(t, 'done') };
-        if (next && t.id === next.id) return { ...t, ...statusPatch(t, 'in-process') };
-        return t;
-      }),
-    }));
-    if (next) {
-      setReaderTopicId(next.id);
-      notify(`"${topic.title}" done. Next up: "${next.title}"`, 'success');
-    } else {
-      setReaderTopicId(null);
-    }
+    const result = await mutate(`/api/topics/${topicId}/done-next`);
+    if (!result) return;
+    if (result.completedCourse) return celebrate(topic.courseId);
+    const next = result.data.topics.find(t => t.id === result.nextTopicId);
+    setReaderTopicId(next?.id ?? null);
+    if (next) notify(`"${topic.title}" done. Next up: "${next.title}"`, 'success');
   };
 
-  /** Puts a course on the study board, enforcing the WIP limit. */
-  const beginStudy = (courseId: string) => {
+  /** Puts a course on the study board. The server enforces the WIP limit. */
+  const beginStudy = async (courseId: string) => {
     const course = data.courses.find(c => c.id === courseId);
     if (!course) return;
-    const state = courseState(data, course);
-
-    if (state === 'empty') return notify('Add some topics to this course before studying it.', 'error');
-    if (state === 'completed') return notify('You already completed this course. Reset it from Manage to study it again.');
-    if (state !== 'on-board') {
-      if (data.board.length >= WIP_LIMIT) {
-        const names = data.board.map(id => data.courses.find(c => c.id === id)?.title).join(' and ');
-        return notify(`Your board is full (${WIP_LIMIT} courses). Finish ${names} first.`, 'error');
-      }
-      setData(d => ({ ...d, board: [...d.board, courseId] }));
-      notify(`${course.title} is on your study board. Good luck!`, 'success');
+    if (courseState(data, course) === 'on-board') {
+      setModal(null);
+      setView('board');
+      return;
     }
-    setModal(null);
-    setView('board');
+    if (data.board.length >= WIP_LIMIT) {
+      const names = data.board.map(id => data.courses.find(c => c.id === id)?.title).join(' and ');
+      notify(`Your board is full (${WIP_LIMIT} courses). Finish ${names} first.`, 'error');
+      return;
+    }
+    if (await mutate(`/api/courses/${courseId}/begin`)) {
+      notify(`${course.title} is on your study board. Good luck!`, 'success');
+      setModal(null);
+      setView('board');
+    }
   };
 
-  const createCourse = async (input: Pick<Course, 'title' | 'code' | 'color'>, topicsInput: NewTopicsInput) => {
-    const course: Course = { ...input, id: newId('course'), createdAt: new Date().toISOString() };
-    const { topics, errors } = await buildTopics(course.id, 1, topicsInput.files, topicsInput.titles);
-    setData(d => ({ ...d, courses: [...d.courses, course], topics: [...d.topics, ...topics] }));
-    notify(
-      errors.length ? `Course created, but some files were skipped: ${errors.join('; ')}` : `${course.title} added with ${topics.length} topic${topics.length === 1 ? '' : 's'}.`,
-      errors.length ? 'error' : 'success',
-    );
+  const topicsForm = (input: NewTopicsInput, fields: Record<string, string> = {}) => {
+    const form = new FormData();
+    Object.entries(fields).forEach(([k, v]) => form.append(k, v));
+    form.append('titles', JSON.stringify(input.titles));
+    input.files.forEach(f => form.append('files', f));
+    return form;
   };
 
-  const addTopics = async (courseId: string, input: NewTopicsInput) => {
-    const { topics, errors } = await buildTopics(courseId, nextOrder(data.topics, courseId), input.files, input.titles);
-    setData(d => ({
-      ...d,
-      topics: [...d.topics, ...topics],
-      // New work reopens a completed course
-      courses: d.courses.map(c => (c.id === courseId && topics.length ? { ...c, completedAt: undefined } : c)),
-    }));
-    notify(errors.length ? `Some files were skipped: ${errors.join('; ')}` : `Added ${topics.length} topic${topics.length === 1 ? '' : 's'}.`, errors.length ? 'error' : 'success');
+  const createCourse = async (input: Pick<Course, 'title' | 'code' | 'color'>, topics: NewTopicsInput) => {
+    if (!(await mutate('/api/courses', { form: topicsForm(topics, input) }))) return false;
+    const count = topics.files.length + topics.titles.length;
+    notify(`${input.title} added with ${count} topic${count === 1 ? '' : 's'}.`, 'success');
+    return true;
   };
 
-  const deleteTopic = (topicId: string) => {
+  const addTopics = async (courseId: string, topics: NewTopicsInput) => {
+    if (!(await mutate(`/api/courses/${courseId}/topics`, { form: topicsForm(topics) }))) return false;
+    const count = topics.files.length + topics.titles.length;
+    notify(`Added ${count} topic${count === 1 ? '' : 's'}.`, 'success');
+    return true;
+  };
+
+  const deleteTopic = async (topicId: string) => {
     const topic = data.topics.find(t => t.id === topicId);
-    if (topic?.document) deleteDocuments([topic.document.id]).catch(() => {});
-    setData(d => ({ ...d, topics: d.topics.filter(t => t.id !== topicId) }));
+    const result = await mutate(`/api/topics/${topicId}`, { method: 'DELETE' });
+    if (result?.completedCourse && topic) celebrate(topic.courseId);
   };
 
-  const deleteCourse = (courseId: string) => {
-    const docIds = data.topics.filter(t => t.courseId === courseId && t.document).map(t => t.document!.id);
-    deleteDocuments(docIds).catch(() => {});
-    setData(d => ({
-      ...d,
-      courses: d.courses.filter(c => c.id !== courseId),
-      topics: d.topics.filter(t => t.courseId !== courseId),
-      board: d.board.filter(id => id !== courseId),
-    }));
-    setManagedCourseId(null);
-    notify('Course deleted.');
+  const deleteCourse = async (courseId: string) => {
+    if (await mutate(`/api/courses/${courseId}`, { method: 'DELETE' })) {
+      setManagedCourseId(null);
+      notify('Course deleted.');
+    }
   };
 
-  const restartCourse = (courseId: string) => {
-    setData(d => ({
-      ...d,
-      courses: d.courses.map(c => (c.id === courseId ? { ...c, completedAt: undefined } : c)),
-      topics: d.topics.map(t =>
-        t.courseId === courseId ? { ...t, status: 'course' as const, progress: 0, startedAt: undefined, completedAt: undefined } : t,
-      ),
-    }));
-    notify('Progress reset. You can begin this course again.');
+  const restartCourse = async (courseId: string) => {
+    if (await mutate(`/api/courses/${courseId}/restart`)) notify('Progress reset. You can begin this course again.');
   };
 
   const loadSample = async () => {
-    try {
-      const { course, topics } = await createSampleCourse();
-      setData(d => ({ ...d, courses: [...d.courses, course], topics: [...d.topics, ...topics] }));
-      notify('Sample course added. Press Begin Study to try the board.', 'success');
-    } catch {
-      notify('Could not create the sample course in this browser.', 'error');
-    }
+    if (await mutate('/api/courses/sample')) notify('Sample course added. Press Begin Study to try the board.', 'success');
+  };
+
+  const attachFile = async (topicId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (await mutate(`/api/topics/${topicId}/file`, { form })) notify(`Attached ${file.name}.`, 'success');
+  };
+
+  const toggleBreakReminder = () => {
+    const breakReminder = !data.settings.breakReminder;
+    setData(d => ({ ...d, settings: { ...d.settings, breakReminder } }));
+    api('/api/settings', { method: 'PATCH', json: { breakReminder } }).catch(err => {
+      setData(d => ({ ...d, settings: { ...d.settings, breakReminder: !breakReminder } }));
+      notifyError(err);
+    });
   };
 
   /* ---------------- Render ---------------- */
@@ -254,7 +320,10 @@ function Workspace({ user, theme, onToggleTheme, onLogout }: WorkspaceProps) {
         boardCount={data.board.length}
         theme={theme}
         onToggleTheme={onToggleTheme}
-        onLogout={onLogout}
+        onLogout={() => {
+          flushPending();
+          onLogout();
+        }}
       />
 
       <main className="flex-1">
@@ -267,9 +336,7 @@ function Workspace({ user, theme, onToggleTheme, onLogout }: WorkspaceProps) {
             onAddCourse={() => setModal('add-course')}
             onManageCourse={setManagedCourseId}
             onLoadSample={loadSample}
-            onToggleBreakReminder={() =>
-              setData(d => ({ ...d, settings: { ...d.settings, breakReminder: !d.settings.breakReminder } }))
-            }
+            onToggleBreakReminder={toggleBreakReminder}
           />
         ) : (
           <StudyBoard
@@ -308,11 +375,14 @@ function Workspace({ user, theme, onToggleTheme, onLogout }: WorkspaceProps) {
           course={readerCourse}
           courseTopics={topicsOf(data, readerCourse.id)}
           paused={showBreak}
-          onClose={() => setReaderTopicId(null)}
+          onClose={() => {
+            flushPending();
+            setReaderTopicId(null);
+          }}
           onUpdate={updateTopic}
           onAddStudyTime={addStudyTime}
           onMarkDone={markDoneAndNext}
-          onError={msg => notify(msg, 'error')}
+          onAttachFile={attachFile}
         />
       )}
 

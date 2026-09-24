@@ -1,5 +1,4 @@
-import { DocType, StoredDocument } from '../types';
-import { newId } from './storage';
+import { DocType } from '../types';
 
 export const ACCEPTED_FILES = '.pdf,.docx,.txt,.md';
 
@@ -13,45 +12,33 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** "03_Cell-Biology.pdf" → "03 Cell Biology" */
-export function titleFromFileName(name: string): string {
-  return name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || name;
-}
-
-function extensionOf(name: string): string {
-  return name.split('.').pop()?.toLowerCase() || '';
-}
-
 export function isSupportedFile(file: File): boolean {
-  return ['pdf', 'docx', 'txt', 'md'].includes(extensionOf(file.name));
+  return ['pdf', 'docx', 'txt', 'md'].includes(file.name.split('.').pop()?.toLowerCase() || '');
 }
 
-export async function parseFile(file: File): Promise<StoredDocument> {
-  const ext = extensionOf(file.name);
-  const base = { id: newId('doc'), name: file.name, size: file.size };
+export type RenderedDocument = { kind: 'pdf'; blob: Blob } | { kind: 'html'; html: string };
 
-  if (ext === 'pdf') {
-    return { ...base, type: 'pdf', blob: file };
+/** Turns a topic file downloaded from the server into something the reader can show. */
+export async function renderDocument(blob: Blob, type: DocType): Promise<RenderedDocument> {
+  if (type === 'pdf') {
+    return { kind: 'pdf', blob: new Blob([blob], { type: 'application/pdf' }) };
   }
 
-  if (ext === 'docx') {
-    // Loaded on demand: mammoth is large and only needed for Word uploads
+  if (type === 'docx') {
+    // Loaded on demand: mammoth is large and only needed for Word files
     const { default: mammoth } = await import('mammoth');
-    const arrayBuffer = await file.arrayBuffer();
+    const arrayBuffer = await blob.arrayBuffer();
     try {
       const result = await mammoth.convertToHtml({ arrayBuffer });
-      return { ...base, type: 'docx', html: result.value || '<p>This Word document is empty.</p>' };
+      return { kind: 'html', html: result.value || '<p>This Word document is empty.</p>' };
     } catch {
       const text = await mammoth.extractRawText({ arrayBuffer });
-      return { ...base, type: 'docx', html: `<pre>${escapeHtml(text.value)}</pre>` };
+      return { kind: 'html', html: `<pre>${escapeHtml(text.value)}</pre>` };
     }
   }
 
-  if (ext === 'txt' || ext === 'md') {
-    const text = await file.text();
-    const type: DocType = ext === 'md' ? 'markdown' : 'text';
-    return { ...base, type, html: `<pre>${escapeHtml(text)}</pre>` };
-  }
-
-  throw new Error(`${file.name}: unsupported file type (use PDF, Word, .txt or .md)`);
+  const text = await blob.text();
+  // Only the built-in sample course uses HTML files
+  if (type === 'html') return { kind: 'html', html: text };
+  return { kind: 'html', html: `<pre>${escapeHtml(text)}</pre>` };
 }

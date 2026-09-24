@@ -17,7 +17,8 @@ export interface NewTopicsInput {
 
 interface AddCourseModalProps {
   onClose: () => void;
-  onCreate: (course: Pick<Course, 'title' | 'code' | 'color'>, topics: NewTopicsInput) => Promise<void>;
+  /** Resolves true once the course is saved. */
+  onCreate: (course: Pick<Course, 'title' | 'code' | 'color'>, topics: NewTopicsInput) => Promise<boolean>;
 }
 
 export function AddCourseModal({ onClose, onCreate }: AddCourseModalProps) {
@@ -33,11 +34,11 @@ export function AddCourseModal({ onClose, onCreate }: AddCourseModalProps) {
     if (!title.trim()) return;
     setBusy(true);
     try {
-      await onCreate(
+      const created = await onCreate(
         { title: title.trim(), code: code.trim().toUpperCase(), color },
         { files, titles: parseTitleLines(titlesText) },
       );
-      onClose();
+      if (created) onClose();
     } finally {
       setBusy(false);
     }
@@ -117,7 +118,7 @@ interface ManageCourseModalProps {
   course: Course;
   data: UserData;
   onClose: () => void;
-  onAddTopics: (courseId: string, topics: NewTopicsInput) => Promise<void>;
+  onAddTopics: (courseId: string, topics: NewTopicsInput) => Promise<boolean>;
   onDeleteTopic: (topicId: string) => void;
   onDeleteCourse: (courseId: string) => void;
   onRestartCourse: (courseId: string) => void;
@@ -137,9 +138,10 @@ export function ManageCourseModal({ course, data, onClose, onAddTopics, onDelete
   const handleAdd = async () => {
     setBusy(true);
     try {
-      await onAddTopics(course.id, { files, titles });
-      setFiles([]);
-      setTitlesText('');
+      if (await onAddTopics(course.id, { files, titles })) {
+        setFiles([]);
+        setTitlesText('');
+      }
     } finally {
       setBusy(false);
     }

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Clock, FileText, Loader2, Paperclip, StickyNote } from 'lucide-react';
-import { Course, StoredDocument, Topic } from '../types';
-import { getDocument, saveDocument } from '../lib/fileStore';
-import { ACCEPTED_FILES, parseFile } from '../lib/fileParser';
+import { Course, Topic } from '../types';
+import { apiBlob } from '../lib/api';
+import { ACCEPTED_FILES, RenderedDocument, renderDocument } from '../lib/fileParser';
 import { courseProgress, findNextTopic, formatDuration } from '../lib/progress';
 import { useStudyClock } from '../lib/useStudyClock';
 import { btnPrimary, inputCls } from '../lib/ui';
@@ -15,14 +15,15 @@ interface ReaderModalProps {
   /** Pauses the topic timer, e.g. while the break reminder is showing. */
   paused: boolean;
   onClose: () => void;
-  onUpdate: (topicId: string, patch: Partial<Topic>) => void;
+  onUpdate: (topicId: string, patch: Partial<Pick<Topic, 'progress' | 'notes'>>) => void;
   onAddStudyTime: (topicId: string, seconds: number) => void;
   onMarkDone: (topicId: string) => void;
-  onError: (message: string) => void;
+  onAttachFile: (topicId: string, file: File) => void;
 }
 
-export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUpdate, onAddStudyTime, onMarkDone, onError }: ReaderModalProps) {
-  const [doc, setDoc] = useState<StoredDocument | null | undefined>(undefined); // undefined = loading
+export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUpdate, onAddStudyTime, onMarkDone, onAttachFile }: ReaderModalProps) {
+  const [doc, setDoc] = useState<RenderedDocument | null | undefined>(undefined); // undefined = loading
+  const [loadError, setLoadError] = useState('');
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState(topic.notes);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -32,27 +33,35 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
   const progressRef = useRef(topic.progress);
   progressRef.current = topic.progress;
 
-  // Load the topic's file from IndexedDB
+  // Download the topic's file from the server
+  const fileKey = topic.document ? `${topic.document.name}:${topic.document.size}` : '';
   useEffect(() => {
     setNotes(topic.notes);
-    const docId = topic.document?.id;
-    if (!docId) {
+    setLoadError('');
+    const type = topic.document?.type;
+    if (!type) {
       setDoc(null);
       return;
     }
     let cancelled = false;
     setDoc(undefined);
-    getDocument(docId)
-      .then(d => !cancelled && setDoc(d ?? null))
-      .catch(() => !cancelled && setDoc(null));
+    apiBlob(`/api/topics/${topic.id}/file`)
+      .then(blob => renderDocument(blob, type))
+      .then(d => !cancelled && setDoc(d))
+      .catch(err => {
+        if (cancelled) return;
+        setDoc(null);
+        setLoadError(err instanceof Error ? err.message : 'Could not load this file.');
+      });
     return () => {
       cancelled = true;
     };
-  }, [topic.id, topic.document?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic.id, fileKey]);
 
   // PDFs are shown from a temporary blob URL
   useEffect(() => {
-    if (!doc?.blob) {
+    if (doc?.kind !== 'pdf') {
       setPdfUrl(null);
       return;
     }
@@ -85,20 +94,9 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
 
   // A document short enough to fit on screen counts as fully read once shown
   useEffect(() => {
-    if (doc?.html) requestAnimationFrame(trackScroll);
+    if (doc?.kind === 'html') requestAnimationFrame(trackScroll);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc]);
-
-  const handleAttach = async (file: File | undefined) => {
-    if (!file) return;
-    try {
-      const parsed = await parseFile(file);
-      await saveDocument(parsed);
-      onUpdate(topic.id, { document: { id: parsed.id, name: parsed.name, type: parsed.type, size: parsed.size } });
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Could not read that file.');
-    }
-  };
 
   const next = findNextTopic(courseTopics, topic.id);
   const isDone = topic.status === 'done';
@@ -141,8 +139,8 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
           ) : pdfUrl ? (
-            <iframe src={pdfUrl} title={doc?.name} className="h-full min-h-[60vh] w-full bg-white" />
-          ) : doc?.html ? (
+            <iframe src={pdfUrl} title={topic.document?.name} className="h-full min-h-[60vh] w-full bg-white" />
+          ) : doc?.kind === 'html' ? (
             <article className="doc-content mx-auto max-w-3xl px-5 py-8 sm:px-10 sm:py-12" dangerouslySetInnerHTML={{ __html: doc.html }} />
           ) : (
             <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center px-6 py-12 text-center">
@@ -151,13 +149,23 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
               </div>
               <h2 className="mt-4 font-bold text-slate-900 dark:text-white">No file for this topic</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                {topic.document ? 'The file could not be found in this browser. ' : ''}
+                {loadError ? `${loadError} ` : ''}
                 Attach a file, or study from your own materials and set your progress with the slider.
               </p>
               <button onClick={() => attachRef.current?.click()} className={`${btnPrimary} mt-5`}>
                 <Paperclip className="h-4 w-4" /> Attach a file
               </button>
-              <input ref={attachRef} type="file" accept={ACCEPTED_FILES} className="hidden" onChange={e => handleAttach(e.target.files?.[0])} />
+              <input
+                ref={attachRef}
+                type="file"
+                accept={ACCEPTED_FILES}
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) onAttachFile(topic.id, file);
+                  e.target.value = '';
+                }}
+              />
             </div>
           )}
         </div>
