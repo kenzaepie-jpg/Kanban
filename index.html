@@ -3,16 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Exam Prep Kanban</title>
-    <meta name="description" content="Student exam preparation app that organizes course documents and PDFs on a Kanban board, advancing topics from Not Done to In Progress reading, and automatically progressing to the next topic until completion." />
-    <meta property="og:title" content="Exam Prep Kanban" />
-    <meta property="og:description" content="Student exam preparation app that organizes course documents and PDFs on a Kanban board, advancing topics from Not Done to In Progress reading, and automatically progressing to the next topic until completion." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <title>GO STUDY</title>
+    <meta name="description" content="GO STUDY: a Kanban study board for students. Upload your courses, study at most two at a time, and track your reading progress topic by topic." />
+    <meta property="og:title" content="GO STUDY" />
+    <meta property="og:description" content="A Kanban study board for students: Course → In Process → Done, with a two-course WIP limit." />
+    <meta name="theme-color" content="#2563eb" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232563eb'/><path d='M9 16.5l4.5 4.5L23 11.5' stroke='white' stroke-width='3.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <script>
+      // Apply the saved theme before first paint to avoid a white flash in dark mode
+      try { if (JSON.parse(localStorage.getItem('gostudy_theme')) === 'dark') document.documentElement.classList.add('dark'); } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

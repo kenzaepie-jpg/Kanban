@@ -1,77 +1,69 @@
-# Exam Prep Kanban
+# GO STUDY
 
-A student study workflow web application designed to help you prepare for exams by organizing course topics, Word documents (`.docx`), and PDFs onto a sequential Kanban board.
+A study planner for students built on the **Kanban** principle: *stop starting, start finishing.*
 
-## Features
+## How it works
 
-- **3-Stage Kanban Board**:
-  - **Not Done**: Backlog of topics, lecture notes, and documents awaiting your first study session.
-  - **Reading & Active (Middle Stage)**: Active study zone. Clicking "Start Reading" shifts the card here and launches the study reader.
-  - **Done & Mastered**: Completed topics. Moving topics here updates overall course completion metrics.
-- **Sequential Document & PDF Study Flow**:
-  - Built-in PDF reader with embed and download capabilities.
-  - Formatted Word document viewer (`.docx` parsed with Mammoth).
-  - **"Mark Done & Next Topic"** button: Completes the current topic, triggers celebratory feedback, automatically advances the next pending topic to the Reading column, and loads its document into the viewer.
-- **Course & Exam Tracking**:
-  - Real-time countdown to target exam dates.
-  - Track mastered topic counts, completion percentages, and estimated study minutes.
-  - Multi-course switcher with preloaded high-yield subjects (Biology, Distributed Systems, Constitutional Law).
-- **Study Utilities**:
-  - Focus study timer with pause and reset.
-  - Topic key objectives checklist.
-  - Exam confidence scoring (1–5 stars).
-  - Personal study scratchpad with automatic local storage persistence.
+1. **Sign in or create an account.** Registration asks for your name, email, level and password.
+2. **Dashboard.** It shows your profile (name, email, level, study stats, preferences) and the **COURSES** section. Add a course there and upload its topics: each PDF, Word (`.docx`), `.txt` or `.md` file becomes one topic. You can also type topic titles.
+3. **Begin Study.** Pick the course you want to study now. It goes onto your **Study Board**.
+4. **Study Board.** Each course gets its own Kanban lane with three columns:
 
----
+   | COURSE | IN PROCESS | DONE |
+   | --- | --- | --- |
+   | Topics waiting to be studied | What you are reading now | Finished topics |
 
-## Project Structure
+   Move topics with the buttons or by drag and drop. The reader tracks your **reading progress** as you scroll (use the slider for PDFs). The course percentage updates live.
+5. **WIP limit: 2 courses.** At most two courses can be on the board at once. A course leaves the board only when **all** its topics are done, which frees its slot for the next course.
 
-```
-├── package.json                   # Dependencies and scripts
-├── vite.config.ts                 # Bundler configuration
-├── index.html                     # HTML entry point
-├── src/
-│   ├── main.tsx                   # React root mount
-│   ├── App.tsx                    # Main state management and Kanban auto-advance logic
-│   ├── types.ts                   # TypeScript interfaces (Course, Topic, KanbanStatus)
-│   ├── index.css                  # Global Tailwind styles
-│   ├── data/
-│   │   └── sampleCourses.ts       # Preloaded realistic courses and study documents
-│   ├── utils/
-│   │   └── fileParser.ts          # Word doc (.docx), PDF, and syllabus parser
-│   └── components/
-│       ├── Navbar.tsx             # Course switcher, exam countdown, and progress bar
-│       ├── KanbanBoard.tsx        # 3-column Kanban board with drag-and-drop
-│       ├── TopicCard.tsx          # Card component with priority badges and quick actions
-│       ├── StudyReaderModal.tsx   # Reader suite with timer, PDF/doc viewer, and next topic flow
-│       ├── UploadModal.tsx        # Word doc/PDF upload and syllabus importer
-│       ├── AddTopicModal.tsx      # Quick modal to add custom topics
-│       ├── CourseManagerModal.tsx # Manage and create courses with colors and exam dates
-│       └── ExamCelebrationModal.tsx # 100% course completion celebration
+### Also included
+- Light (white & blue) and dark mode
+- Optional **break reminder**: after 30 minutes on the study board it suggests a 5-minute break (toggle it under *Preferences*)
+- Per-topic notes and study time
+- A one-click sample course for trying the app
+
+## Run locally
+
+```bash
+npm install
+npm run dev      # http://localhost:3000
+npm run lint     # type-check
+npm run build
 ```
 
----
+## Where data is stored
 
-## Getting Started Locally
+There is no backend yet, so everything stays **in the browser**:
 
-1. **Clone or Extract the Repository**:
-   ```bash
-   git clone <your-github-repo-url>
-   cd <project-folder>
-   ```
+- Accounts live in `localStorage`, with passwords salted and hashed (PBKDF2-SHA-256).
+- Courses, topics and progress are saved per user in `localStorage`.
+- Uploaded files are saved in IndexedDB, so large PDFs don't hit the localStorage limit.
 
-2. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
+This means accounts don't sync between browsers or devices. Sign-in uses the Web Crypto API, so open the app on `localhost` or over HTTPS.
 
-3. **Run the Development Server**:
-   ```bash
-   npm run dev
-   ```
-   Open your browser at `http://localhost:3000`.
+## Project structure
 
-4. **Build for Production**:
-   ```bash
-   npm run build
-   ```
+```
+src/
+├── App.tsx                  # Auth gate + workspace state (board rules, WIP limit, break reminder)
+├── types.ts                 # User, Course, Topic, UserData
+├── lib/
+│   ├── auth.ts              # Register / login / logout
+│   ├── fileStore.ts         # IndexedDB storage for uploaded files
+│   ├── fileParser.ts        # PDF / Word / text parsing
+│   ├── progress.ts          # WIP_LIMIT, progress %, course state
+│   ├── topics.ts            # Building topics from uploads
+│   ├── sampleCourse.ts      # Demo course
+│   ├── theme.ts             # Light / dark mode
+│   └── useStudyClock.ts     # Session timer for break reminders
+└── components/
+    ├── AuthPage.tsx         # Sign in / create account
+    ├── Header.tsx           # Navigation, theme toggle, logout
+    ├── Dashboard.tsx        # Profile, preferences, COURSES section
+    ├── CourseModals.tsx     # Add course, manage course, begin study
+    ├── StudyBoard.tsx       # Kanban lanes: Course → In Process → Done
+    ├── ReaderModal.tsx      # Document reader with progress tracking and notes
+    ├── BreakModal.tsx       # 30-minute break reminder
+    ├── CompletionModal.tsx  # Course finished celebration
+    └── common.tsx           # Modal, progress bar, file drop, toast, logo
+```

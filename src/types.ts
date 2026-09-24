@@ -1,21 +1,42 @@
-export type KanbanStatus = 'not-done' | 'in-progress' | 'done';
+/** Kanban columns on the study board: COURSE (not started) → IN PROCESS → DONE. */
+export type TopicStatus = 'course' | 'in-process' | 'done';
 
-export type Priority = 'low' | 'medium' | 'high';
+export type DocType = 'pdf' | 'docx' | 'text' | 'markdown';
 
-export interface DocumentAttachment {
+/** Lightweight file info kept on the topic; the file itself lives in IndexedDB. */
+export interface DocumentMeta {
   id: string;
   name: string;
-  type: 'pdf' | 'docx' | 'text' | 'markdown';
-  size?: number;
-  url?: string; // Blob URL or base64 or sample URL
-  content?: string; // Raw text or parsed HTML
-  pageCount?: number;
+  type: DocType;
+  size: number;
 }
 
-export interface KeyConcept {
+/** What is saved in IndexedDB: PDFs keep their Blob, everything else is rendered HTML. */
+export interface StoredDocument extends DocumentMeta {
+  blob?: Blob;
+  html?: string;
+}
+
+export interface User {
   id: string;
-  text: string;
-  completed: boolean;
+  name: string;
+  email: string;
+  level: string;
+  createdAt: string;
+}
+
+export interface StoredUser extends User {
+  passwordHash: string;
+  salt: string;
+}
+
+export interface Course {
+  id: string;
+  title: string;
+  code: string;
+  color: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 export interface Topic {
@@ -23,24 +44,25 @@ export interface Topic {
   courseId: string;
   title: string;
   order: number;
-  status: KanbanStatus;
-  priority: Priority;
-  estimatedMinutes: number;
-  document?: DocumentAttachment;
-  summary?: string;
-  keyConcepts: KeyConcept[];
-  personalNotes: string;
-  confidenceScore: number; // 0-5
-  lastStudiedAt?: string;
+  status: TopicStatus;
+  /** Reading progress 0–100, tracked while the student reads. */
+  progress: number;
+  document?: DocumentMeta;
+  notes: string;
+  secondsStudied: number;
+  startedAt?: string;
   completedAt?: string;
 }
 
-export interface Course {
-  id: string;
-  title: string;
-  code: string; // e.g. "BIO-101", "CS-401"
-  description: string;
-  examDate: string; // ISO date string e.g. "2026-10-10"
-  color: string;
-  createdAt: string;
+export interface Settings {
+  breakReminder: boolean;
+}
+
+/** Everything that belongs to one signed-in student. */
+export interface UserData {
+  courses: Course[];
+  topics: Topic[];
+  /** Course ids currently on the study board, limited by WIP_LIMIT. */
+  board: string[];
+  settings: Settings;
 }
