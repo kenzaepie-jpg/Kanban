@@ -50,7 +50,7 @@ export interface Settings {
 export interface UserData {
   courses: Course[];
   topics: Topic[];
-  /** Course ids currently on the study board, limited by WIP_LIMIT. */
+  /** Course ids currently on the study board (being studied), limited by WIP_LIMIT. */
   board: string[];
   settings: Settings;
 }

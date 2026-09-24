@@ -15,7 +15,7 @@ interface AuthPageProps {
 const FEATURES = [
   { icon: Columns3, text: 'A Kanban study board: Course → In Process → Done' },
   { icon: Gauge, text: 'Live reading progress for every topic and course' },
-  { icon: CheckCircle2, text: 'Max 2 courses at a time, so you finish what you start' },
+  { icon: CheckCircle2, text: 'One course at a time, so you finish what you start' },
   { icon: Timer, text: 'Optional break reminders every 30 minutes' },
 ];
 

@@ -9,8 +9,8 @@ import { pool, transaction } from './db';
 import { HttpError, handle, parseId, requireString } from './http';
 import { SAMPLE_COURSE } from './sampleCourse';
 
-/** Work-in-progress limit: at most this many courses on a student's study board. */
-export const WIP_LIMIT = 2;
+/** Work-in-progress limit: a student studies one course at a time. */
+export const WIP_LIMIT = 1;
 
 type Db = PoolConnection | typeof pool;
 type TopicStatus = 'course' | 'in-process' | 'done';
@@ -126,7 +126,7 @@ async function ownedTopic(db: Db, userId: number, topicId: number, lock = false)
 
 /**
  * When every topic of a course on the board is done, the course is completed:
- * it leaves the board and frees its WIP slot. Returns true if that just happened.
+ * it leaves the board and frees the student to take up another course. Returns true if that just happened.
  */
 async function settleCourse(db: Db, courseId: number): Promise<boolean> {
   const [[row]] = await db.query<RowDataPacket[]>(
@@ -287,7 +287,10 @@ studyRouter.post(
   }),
 );
 
-/** Begin study: put a course on the board, enforcing the WIP limit. */
+/**
+ * Begin study: put a course on the board, enforcing the WIP limit.
+ * With `{ switch: true }` the current session(s) are ended first, for when priorities change.
+ */
 studyRouter.post(
   '/courses/:id/begin',
   handle(async (req, res) => {
@@ -313,11 +316,25 @@ studyRouter.post(
 
       const onBoard = courses.filter(c => c.on_board_at);
       if (onBoard.length >= WIP_LIMIT) {
-        const names = onBoard.map(c => c.title).join(' and ');
-        throw new HttpError(409, `Your board is full (${WIP_LIMIT} courses). Finish ${names} first.`);
+        if (req.body?.switch !== true) {
+          const names = onBoard.map(c => c.title).join(' and ');
+          throw new HttpError(409, `You are studying ${names}. Finish it or end its session first.`);
+        }
+        await conn.query('UPDATE courses SET on_board_at = NULL WHERE id IN (?)', [onBoard.map(c => c.id)]);
       }
       await conn.query('UPDATE courses SET on_board_at = UTC_TIMESTAMP(3), completed_at = NULL WHERE id = ?', [courseId]);
     });
+    res.json({ data: await loadUserData(pool, req.userId!) });
+  }),
+);
+
+/** End a course's study session early. Its topics keep their progress for later. */
+studyRouter.post(
+  '/courses/:id/end',
+  handle(async (req, res) => {
+    const courseId = parseId(req.params.id);
+    await ownedCourse(pool, req.userId!, courseId);
+    await pool.query('UPDATE courses SET on_board_at = NULL WHERE id = ?', [courseId]);
     res.json({ data: await loadUserData(pool, req.userId!) });
   }),
 );

@@ -236,17 +236,22 @@ interface BeginStudyModalProps {
 
 export function BeginStudyModal({ data, onClose, onStudy, onAddCourse }: BeginStudyModalProps) {
   const boardFull = data.board.length >= WIP_LIMIT;
-  const boardNames = data.board.map(id => data.courses.find(c => c.id === id)?.title).filter(Boolean);
+  const boardNames = data.board.map(id => data.courses.find(c => c.id === id)?.title).filter(Boolean).join(' and ');
 
   return (
     <Modal title="Begin study" subtitle="Choose the course you want to study right now." onClose={onClose}>
       <div className={`mb-4 flex gap-3 rounded-xl px-4 py-3 text-sm ${boardFull ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200' : 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-200'}`}>
         <Columns3 className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
-          <strong>Study board: {data.board.length}/{WIP_LIMIT} courses.</strong>{' '}
-          {boardFull
-            ? `Finish all topics in ${boardNames.join(' or ')} before starting a new course.`
-            : 'You can study at most 2 courses at a time.'}
+          {boardFull ? (
+            <>
+              <strong>You are studying {boardNames}.</strong> Picking another course ends that session. Your progress is kept.
+            </>
+          ) : (
+            <>
+              <strong>One course at a time.</strong> Finish it, or end its session if your priorities change.
+            </>
+          )}
         </p>
       </div>
 
@@ -260,12 +265,12 @@ export function BeginStudyModal({ data, onClose, onStudy, onAddCourse }: BeginSt
           {data.courses.map(course => {
             const state = courseState(data, course);
             const pct = courseProgress(topicsOf(data, course.id));
-            const blocked = state === 'empty' || state === 'completed' || (boardFull && state !== 'on-board');
+            const blocked = state === 'empty' || state === 'completed';
             const reason =
               state === 'empty' ? 'Add topics first'
               : state === 'completed' ? 'Completed'
-              : state === 'on-board' ? 'On your board'
-              : boardFull ? 'Board full' : `${pct}% done`;
+              : state === 'on-board' ? 'Studying now'
+              : boardFull ? `${pct}% done · switch to this course` : `${pct}% done`;
 
             return (
               <li key={course.id}>

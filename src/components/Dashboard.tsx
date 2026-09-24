@@ -20,7 +20,7 @@ const STATE_BADGE: Record<CourseState, { label: string; cls: string }> = {
   empty: { label: 'No topics yet', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
   'not-started': { label: 'Not started', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
   'on-board': { label: 'On study board', cls: 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300' },
-  paused: { label: 'Started', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' },
+  paused: { label: 'Paused', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' },
   completed: { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' },
 };
 
@@ -31,7 +31,7 @@ export function Dashboard(props: DashboardProps) {
   const completedCourses = data.courses.filter(c => courseState(data, c) === 'completed').length;
   const topicsDone = data.topics.filter(t => t.status === 'done').length;
   const totalSeconds = data.topics.reduce((sum, t) => sum + t.secondsStudied, 0);
-  const slotsLeft = WIP_LIMIT - data.board.length;
+  const studying = data.board.map(id => data.courses.find(c => c.id === id)?.title).filter(Boolean).join(' and ');
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -45,7 +45,9 @@ export function Dashboard(props: DashboardProps) {
             <p className="mt-2 max-w-lg text-sm text-blue-100">
               {data.board.length === 0
                 ? 'Pick a course and begin a focused study session.'
-                : `${data.board.length} of ${WIP_LIMIT} study board slots in use. ${slotsLeft > 0 ? 'You can add one more course.' : 'Finish a course to free a slot.'}`}
+                : data.board.length < WIP_LIMIT
+                  ? `You are studying ${studying}. You can add another course.`
+                  : `You are studying ${studying}. Finish it, or end the session to switch course.`}
             </p>
           </div>
           <button
@@ -231,7 +233,7 @@ function CourseCard({ course, data, onStudy, onManage }: CourseCardProps) {
               className={`${btnPrimary} px-3 py-2`}
             >
               <Play className="h-3.5 w-3.5 fill-current" />
-              {state === 'on-board' ? 'Continue' : 'Study'}
+              {state === 'on-board' ? 'Continue' : state === 'paused' ? 'Resume' : 'Study'}
             </button>
           </div>
         </div>

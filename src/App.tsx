@@ -225,7 +225,12 @@ function LoadedWorkspace({ user, theme, onToggleTheme, onLogout, initialData }: 
     if (next) notify(`"${topic.title}" done. Next up: "${next.title}"`, 'success');
   };
 
-  /** Puts a course on the study board. The server enforces the WIP limit. */
+  const boardTitles = () => data.board.map(id => data.courses.find(c => c.id === id)?.title).join(' and ');
+
+  /**
+   * Puts a course on the study board. If another course is being studied, the student
+   * can end that session and switch (e.g. when priorities change). The server enforces the WIP limit.
+   */
   const beginStudy = async (courseId: string) => {
     const course = data.courses.find(c => c.id === courseId);
     if (!course) return;
@@ -234,15 +239,29 @@ function LoadedWorkspace({ user, theme, onToggleTheme, onLogout, initialData }: 
       setView('board');
       return;
     }
-    if (data.board.length >= WIP_LIMIT) {
-      const names = data.board.map(id => data.courses.find(c => c.id === id)?.title).join(' and ');
-      notify(`Your board is full (${WIP_LIMIT} courses). Finish ${names} first.`, 'error');
+    const switching = data.board.length >= WIP_LIMIT;
+    if (
+      switching &&
+      !window.confirm(`You are studying ${boardTitles()}.\n\nEnd that session and start ${course.title} instead? Your progress is kept.`)
+    ) {
       return;
     }
-    if (await mutate(`/api/courses/${courseId}/begin`)) {
-      notify(`${course.title} is on your study board. Good luck!`, 'success');
+    if (await mutate(`/api/courses/${courseId}/begin`, { json: { switch: switching } })) {
+      notify(`Now studying ${course.title}. Good luck!`, 'success');
       setModal(null);
       setView('board');
+    }
+  };
+
+  /** Ends a course's study session early; its progress is kept. */
+  const endSession = async (courseId: string) => {
+    const course = data.courses.find(c => c.id === courseId);
+    if (!course) return;
+    if (!window.confirm(`End your study session for ${course.title}? Your progress is kept, and you can resume it later.`)) return;
+    if (await mutate(`/api/courses/${courseId}/end`)) {
+      setReaderTopicId(null);
+      setView('dashboard');
+      notify('Session ended. Pick the next course to study.');
     }
   };
 
@@ -345,6 +364,7 @@ function LoadedWorkspace({ user, theme, onToggleTheme, onLogout, initialData }: 
             onMoveTopic={moveTopic}
             onOpenReader={setReaderTopicId}
             onBeginStudy={() => setModal('begin-study')}
+            onEndSession={endSession}
           />
         )}
       </main>

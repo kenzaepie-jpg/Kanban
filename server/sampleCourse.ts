@@ -40,7 +40,7 @@ const LESSONS: { title: string; html: string }[] = [
 <p>Kanban visualises work as cards moving across columns such as <em>To Do → In Progress → Done</em>.</p>
 <h2>Work-in-progress (WIP) limits</h2>
 <p>A WIP limit caps how many items may sit in a column at once. When the column is full, you must <strong>finish</strong> something before you <strong>start</strong> something new.</p>
-<p>That is exactly how GO STUDY works: at most two courses can be on your study board, so you finish a course before picking up the next one.</p>
+<p>That is exactly how GO STUDY works: your study board holds one course at a time, so you finish a course (or deliberately end its session) before picking up the next one.</p>
 <h2>Benefits</h2>
 <ul>
 <li>Less context switching and multitasking</li>

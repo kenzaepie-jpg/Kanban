@@ -1,7 +1,7 @@
 import { Course, Topic, UserData } from '../types';
 
-/** Work-in-progress limit: at most this many courses on the study board at once. */
-export const WIP_LIMIT = 2;
+/** Work-in-progress limit: a student studies one course at a time. */
+export const WIP_LIMIT = 1;
 
 export function topicProgress(topic: Topic): number {
   return topic.status === 'done' ? 100 : topic.progress;

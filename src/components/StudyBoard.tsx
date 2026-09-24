@@ -1,5 +1,5 @@
 import { DragEvent, useState } from 'react';
-import { BellRing, BookOpen, CheckCircle2, Clock, FileText, Info, Lock, Play, Plus, RotateCcw } from 'lucide-react';
+import { BellRing, BookOpen, CheckCircle2, Clock, FileText, Info, Lock, Play, Plus, RotateCcw, Square } from 'lucide-react';
 import { Course, Topic, TopicStatus, UserData } from '../types';
 import { BREAK_AFTER_SECONDS } from '../lib/useStudyClock';
 import { WIP_LIMIT, courseProgress, formatDuration, topicsOf } from '../lib/progress';
@@ -12,6 +12,7 @@ interface StudyBoardProps {
   onMoveTopic: (topicId: string, status: TopicStatus) => void;
   onOpenReader: (topicId: string) => void;
   onBeginStudy: () => void;
+  onEndSession: (courseId: string) => void;
 }
 
 const COLUMNS: { status: TopicStatus; title: string; hint: string }[] = [
@@ -20,7 +21,7 @@ const COLUMNS: { status: TopicStatus; title: string; hint: string }[] = [
   { status: 'done', title: 'Done', hint: 'Finished topics' },
 ];
 
-export function StudyBoard({ data, sessionSeconds, onMoveTopic, onOpenReader, onBeginStudy }: StudyBoardProps) {
+export function StudyBoard({ data, sessionSeconds, onMoveTopic, onOpenReader, onBeginStudy, onEndSession }: StudyBoardProps) {
   const courses = data.board.map(id => data.courses.find(c => c.id === id)).filter((c): c is Course => !!c);
   const freeSlots = WIP_LIMIT - courses.length;
   const breakIn = Math.max(0, BREAK_AFTER_SECONDS - sessionSeconds);
@@ -32,7 +33,7 @@ export function StudyBoard({ data, sessionSeconds, onMoveTopic, onOpenReader, on
           <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Study Board</h1>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
             <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            WIP limit: {WIP_LIMIT} courses. Finish every topic in a course to free its slot.
+            WIP limit: {WIP_LIMIT} course{WIP_LIMIT === 1 ? '' : 's'} at a time. Finish it, or end the session to switch course.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -47,7 +48,7 @@ export function StudyBoard({ data, sessionSeconds, onMoveTopic, onOpenReader, on
             </span>
           )}
           <span className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 font-bold text-white">
-            {courses.length}/{WIP_LIMIT} courses
+            {courses.length}/{WIP_LIMIT} course{WIP_LIMIT === 1 ? '' : 's'}
           </span>
         </div>
       </div>
@@ -74,6 +75,7 @@ export function StudyBoard({ data, sessionSeconds, onMoveTopic, onOpenReader, on
           topics={topicsOf(data, course.id)}
           onMoveTopic={onMoveTopic}
           onOpenReader={onOpenReader}
+          onEndSession={onEndSession}
         />
       ))}
 
@@ -82,13 +84,13 @@ export function StudyBoard({ data, sessionSeconds, onMoveTopic, onOpenReader, on
           onClick={onBeginStudy}
           className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 py-8 text-sm font-semibold text-slate-500 transition-colors hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-blue-300"
         >
-          <Plus className="h-5 w-5" /> {freeSlots} free slot: add another course
+          <Plus className="h-5 w-5" /> {freeSlots} free slot{freeSlots === 1 ? '' : 's'}: add another course
         </button>
       )}
 
       {courses.length >= WIP_LIMIT && (
         <p className="flex items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-          <Lock className="h-4 w-4" /> The board is full. Finish a course to unlock the next one.
+          <Lock className="h-4 w-4" /> Finish this course to unlock the next one, or end the session if your priorities change.
         </p>
       )}
     </div>
@@ -100,9 +102,10 @@ interface CourseLaneProps {
   topics: Topic[];
   onMoveTopic: (topicId: string, status: TopicStatus) => void;
   onOpenReader: (topicId: string) => void;
+  onEndSession: (courseId: string) => void;
 }
 
-function CourseLane({ course, topics, onMoveTopic, onOpenReader }: CourseLaneProps) {
+function CourseLane({ course, topics, onMoveTopic, onOpenReader, onEndSession }: CourseLaneProps) {
   const [dragOver, setDragOver] = useState<TopicStatus | null>(null);
   const pct = courseProgress(topics);
   const done = topics.filter(t => t.status === 'done').length;
@@ -124,12 +127,21 @@ function CourseLane({ course, topics, onMoveTopic, onOpenReader }: CourseLanePro
           <span className="font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">{course.code || 'COURSE'}</span>
           <h2 className="truncate text-lg font-bold text-slate-900 dark:text-white">{course.title}</h2>
         </div>
-        <div className="w-full sm:w-72">
-          <div className="mb-1.5 flex justify-between text-xs">
-            <span className="text-slate-500 dark:text-slate-400">{done}/{topics.length} topics done</span>
-            <span className="text-sm font-black text-blue-700 dark:text-blue-300">{pct}%</span>
+        <div className="flex w-full items-center gap-4 sm:w-auto">
+          <div className="flex-1 sm:w-72">
+            <div className="mb-1.5 flex justify-between text-xs">
+              <span className="text-slate-500 dark:text-slate-400">{done}/{topics.length} topics done</span>
+              <span className="text-sm font-black text-blue-700 dark:text-blue-300">{pct}%</span>
+            </div>
+            <ProgressBar value={pct} color={course.color} className="h-2.5" />
           </div>
-          <ProgressBar value={pct} color={course.color} className="h-2.5" />
+          <button
+            onClick={() => onEndSession(course.id)}
+            title="Stop studying this course for now (progress is kept)"
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+          >
+            <Square className="h-3 w-3 fill-current" /> End session
+          </button>
         </div>
       </div>
 
