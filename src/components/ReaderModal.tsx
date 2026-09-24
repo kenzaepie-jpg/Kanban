@@ -7,6 +7,10 @@ import { courseProgress, findNextTopic, formatDuration } from '../lib/progress';
 import { useStudyClock } from '../lib/useStudyClock';
 import { btnPrimary, inputCls } from '../lib/ui';
 import { ProgressBar } from './common';
+import { PdfPosition, PdfViewer } from './PdfViewer';
+
+/** Pages per slide group in the side panel (5 of 25 pages = 20%). */
+const PAGES_PER_GROUP = 5;
 
 interface ReaderModalProps {
   topic: Topic;
@@ -25,6 +29,9 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
   const [doc, setDoc] = useState<RenderedDocument | null | undefined>(undefined); // undefined = loading
   const [loadError, setLoadError] = useState('');
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfPos, setPdfPos] = useState<PdfPosition | null>(null);
+  // If PDF.js can't draw a PDF, fall back to the browser's own viewer (manual progress)
+  const [pdfFallback, setPdfFallback] = useState(false);
   const [notes, setNotes] = useState(topic.notes);
   const scrollRef = useRef<HTMLDivElement>(null);
   const attachRef = useRef<HTMLInputElement>(null);
@@ -32,12 +39,17 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
   const [seconds, setSeconds] = useStudyClock(!paused);
   const progressRef = useRef(topic.progress);
   progressRef.current = topic.progress;
+  // PDFs reopen on the page matching saved progress (finished topics start from page 1 for review)
+  const startProgressRef = useRef(0);
 
   // Download the topic's file from the server
   const fileKey = topic.document ? `${topic.document.name}:${topic.document.size}` : '';
   useEffect(() => {
     setNotes(topic.notes);
     setLoadError('');
+    setPdfPos(null);
+    setPdfFallback(false);
+    startProgressRef.current = topic.status === 'done' ? 0 : topic.progress;
     const type = topic.document?.type;
     if (!type) {
       setDoc(null);
@@ -59,16 +71,16 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic.id, fileKey]);
 
-  // PDFs are shown from a temporary blob URL
+  // Fallback PDF viewer uses a temporary blob URL
   useEffect(() => {
-    if (doc?.kind !== 'pdf') {
+    if (doc?.kind !== 'pdf' || !pdfFallback) {
       setPdfUrl(null);
       return;
     }
     const url = URL.createObjectURL(doc.blob);
     setPdfUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [doc]);
+  }, [doc, pdfFallback]);
 
   // Save time spent on this topic when switching topics or closing the reader
   const secondsRef = useRef(0);
@@ -86,7 +98,7 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
   // It only ever moves forward from scrolling; the slider can set it freely.
   const trackScroll = () => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || doc?.kind !== 'html') return;
     const scrollable = el.scrollHeight - el.clientHeight;
     const pct = scrollable <= 8 ? 100 : Math.min(100, Math.round((el.scrollTop / scrollable) * 100));
     if (pct > progressRef.current) onUpdate(topic.id, { progress: pct });
@@ -97,6 +109,13 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
     if (doc?.kind === 'html') requestAnimationFrame(trackScroll);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc]);
+
+  // PDF progress = furthest page looked at / total pages
+  const handlePdfPosition = (pos: PdfPosition) => {
+    setPdfPos(pos);
+    const pct = Math.round((pos.furthest / pos.total) * 100);
+    if (pct > progressRef.current && topic.status !== 'done') onUpdate(topic.id, { progress: pct });
+  };
 
   const next = findNextTopic(courseTopics, topic.id);
   const isDone = topic.status === 'done';
@@ -138,6 +157,14 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
             <div className="flex h-full items-center justify-center text-slate-400">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
+          ) : doc?.kind === 'pdf' && !pdfFallback ? (
+            <PdfViewer
+              blob={doc.blob}
+              scrollRoot={scrollRef}
+              startProgress={startProgressRef.current}
+              onPosition={handlePdfPosition}
+              onError={() => setPdfFallback(true)}
+            />
           ) : pdfUrl ? (
             <iframe src={pdfUrl} title={topic.document?.name} className="h-full min-h-[60vh] w-full bg-white" />
           ) : doc?.kind === 'html' ? (
@@ -171,7 +198,7 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
         </div>
 
         {/* Side panel */}
-        <aside className="shrink-0 space-y-6 overflow-y-auto border-t border-slate-200 bg-white p-5 lg:w-80 lg:border-t-0 lg:border-l dark:border-slate-800 dark:bg-slate-900">
+        <aside className="max-h-[38vh] shrink-0 space-y-6 overflow-y-auto border-t border-slate-200 bg-white p-5 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l dark:border-slate-800 dark:bg-slate-900">
           <section>
             <div className="flex items-baseline justify-between">
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">Reading progress</h2>
@@ -181,7 +208,7 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
               type="range"
               min={0}
               max={100}
-              step={5}
+              step={1}
               value={isDone ? 100 : topic.progress}
               disabled={isDone}
               onChange={e => onUpdate(topic.id, { progress: Number(e.target.value) })}
@@ -191,6 +218,7 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {pdfUrl ? 'Drag the slider as you read through the PDF.' : 'Updates automatically as you scroll. You can also set it here.'}
             </p>
+            {pdfPos && <SlideGroups pos={pdfPos} progress={isDone ? 100 : topic.progress} color={course.color} />}
           </section>
 
           <section>
@@ -228,6 +256,42 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
             </ol>
           </section>
         </aside>
+      </div>
+    </div>
+  );
+}
+
+/** "Page 7 of 25" plus 5-page slide groups that fill in as the student reads. */
+function SlideGroups({ pos, progress, color }: { pos: PdfPosition; progress: number; color: string }) {
+  const pagesRead = Math.round((progress / 100) * pos.total);
+  const groups: { from: number; to: number }[] = [];
+  for (let from = 1; from <= pos.total; from += PAGES_PER_GROUP) {
+    groups.push({ from, to: Math.min(from + PAGES_PER_GROUP - 1, pos.total) });
+  }
+
+  return (
+    <div className="mt-4 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+      <p className="flex justify-between text-xs">
+        <span className="font-semibold text-slate-700 dark:text-slate-200">Page {pos.page} of {pos.total}</span>
+        <span className="text-slate-500 dark:text-slate-400">{pagesRead} read</span>
+      </p>
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        {groups.map(g => {
+          const done = pagesRead >= g.to;
+          const current = pos.page >= g.from && pos.page <= g.to;
+          return (
+            <span
+              key={g.from}
+              title={`Pages ${g.from}-${g.to}`}
+              className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
+                done ? 'text-white' : 'bg-white text-slate-500 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:ring-slate-700'
+              } ${current ? 'outline-2 outline-offset-1 outline-blue-500' : ''}`}
+              style={done ? { backgroundColor: color } : undefined}
+            >
+              {g.from === g.to ? g.from : `${g.from}–${g.to}`}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
