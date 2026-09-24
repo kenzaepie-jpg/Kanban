@@ -119,6 +119,9 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
 
   const next = findNextTopic(courseTopics, topic.id);
   const isDone = topic.status === 'done';
+  const readToEnd = topic.progress >= 100;
+  // Files the reader tracks by itself; the manual slider is only for topics it can't track
+  const autoTracked = doc?.kind === 'html' || (doc?.kind === 'pdf' && !pdfFallback);
   const coursePct = courseProgress(courseTopics);
 
   return (
@@ -140,10 +143,17 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
             {formatDuration(seconds)}
           </span>
           {!isDone && (
-            <button onClick={() => onMarkDone(topic.id)} className={`${btnPrimary} px-3 sm:px-4`}>
+            <button
+              onClick={() => onMarkDone(topic.id)}
+              disabled={!readToEnd}
+              title={readToEnd ? undefined : `Read to the end to unlock (${topic.progress}% read)`}
+              className={`${btnPrimary} px-3 sm:px-4 disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-slate-200 dark:disabled:bg-slate-800 dark:disabled:text-slate-400 dark:disabled:ring-slate-700`}
+            >
               <CheckCircle2 className="h-4 w-4" />
-              <span className="hidden sm:inline">{next ? 'Done, next topic' : 'Finish course'}</span>
-              <span className="sm:hidden">Done</span>
+              <span className="hidden sm:inline">
+                {!readToEnd ? `Read to the end · ${topic.progress}%` : next ? 'Done, next topic' : 'Finish course'}
+              </span>
+              <span className="sm:hidden">{readToEnd ? 'Done' : `${topic.progress}%`}</span>
             </button>
           )}
         </div>
@@ -204,6 +214,7 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">Reading progress</h2>
               <span className="text-2xl font-black text-blue-700 dark:text-blue-300">{isDone ? 100 : topic.progress}%</span>
             </div>
+            {!autoTracked && !isDone && doc !== undefined && (
             <input
               type="range"
               min={0}
@@ -215,8 +226,14 @@ export function ReaderModal({ topic, course, courseTopics, paused, onClose, onUp
               className="mt-3 w-full accent-blue-600"
               aria-label="Reading progress"
             />
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {pdfUrl ? 'Drag the slider as you read through the PDF.' : 'Updates automatically as you scroll. You can also set it here.'}
+            )}
+            {autoTracked && !isDone && <ProgressBar value={topic.progress} color={course.color} className="mt-3 h-2.5" />}
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {isDone
+                ? 'You finished this topic.'
+                : autoTracked
+                  ? 'Tracks automatically as you read. Reach the end (100%) to mark this topic done.'
+                  : 'Set your progress with the slider as you study. Reach 100% to mark this topic done.'}
             </p>
             {pdfPos && <SlideGroups pos={pdfPos} progress={isDone ? 100 : topic.progress} color={course.color} />}
           </section>

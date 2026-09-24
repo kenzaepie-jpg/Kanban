@@ -147,12 +147,14 @@ function LoadedWorkspace({ user, theme, onToggleTheme, onLogout, initialData }: 
   const pending = useRef(new Map<string, Partial<Topic>>());
   const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const flushPending = useCallback(() => {
+  /** Sends batched progress/notes now; resolves once the server has saved them. */
+  const flushPending = useCallback((): Promise<void> => {
     clearTimeout(flushTimer.current);
-    for (const [topicId, patch] of pending.current) {
-      api(`/api/topics/${topicId}`, { method: 'PATCH', json: patch }).catch(notifyError);
-    }
+    const saves = [...pending.current].map(([topicId, patch]) =>
+      api(`/api/topics/${topicId}`, { method: 'PATCH', json: patch }).catch(notifyError),
+    );
     pending.current.clear();
+    return Promise.all(saves).then(() => undefined);
   }, [notifyError]);
 
   useEffect(() => {
@@ -188,7 +190,8 @@ function LoadedWorkspace({ user, theme, onToggleTheme, onLogout, initialData }: 
 
   /** Sends a change to the server and replaces local data with the server's result. */
   const mutate = async (path: string, options: Parameters<typeof api>[1] = { method: 'POST' }): Promise<DataResponse | null> => {
-    flushPending(); // don't let unsaved progress be overwritten
+    // Save pending progress first: it must not be overwritten, and "done" needs it to be 100%
+    await flushPending();
     try {
       const result = await api<DataResponse>(path, options);
       setData(result.data);
@@ -207,6 +210,10 @@ function LoadedWorkspace({ user, theme, onToggleTheme, onLogout, initialData }: 
   const moveTopic = async (topicId: string, status: TopicStatus) => {
     const topic = data.topics.find(t => t.id === topicId);
     if (!topic) return;
+    if (status === 'done' && topic.progress < 100) {
+      notify(`Read "${topic.title}" to the end first (${topic.progress}% read).`, 'error');
+      return;
+    }
     const result = await mutate(`/api/topics/${topicId}/move`, { json: { status } });
     if (!result) return;
     if (result.completedCourse) celebrate(topic.courseId);
@@ -216,7 +223,7 @@ function LoadedWorkspace({ user, theme, onToggleTheme, onLogout, initialData }: 
   /** Marks a topic done and opens the next one in the same course, if any. */
   const markDoneAndNext = async (topicId: string) => {
     const topic = data.topics.find(t => t.id === topicId);
-    if (!topic) return;
+    if (!topic || topic.progress < 100) return;
     const result = await mutate(`/api/topics/${topicId}/done-next`);
     if (!result) return;
     if (result.completedCourse) return celebrate(topic.courseId);

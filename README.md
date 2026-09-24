@@ -13,7 +13,9 @@ A study planner for students built on the **Kanban** principle: *stop starting, 
    | --- | --- | --- |
    | Topics waiting to be studied | What you are reading now | Finished topics |
 
-   Move topics with the buttons or by drag and drop. The reader tracks your **reading progress** as you scroll (use the slider for PDFs). The course percentage updates live.
+   Move topics with the buttons or by drag and drop. The reader tracks your **reading progress** automatically: PDFs page by page (25 pages → each page is 4%, shown in 5-page slide groups), Word and text files as you scroll. Topics without a file use a manual slider. The course percentage updates live, and PDFs reopen where you stopped.
+
+   A topic can only be marked **Done** once it has been read to **100%**; the Done / Finish course buttons stay locked until then (the server enforces this too).
 5. **WIP limit: 1 course at a time.** Add all your courses in the COURSES section, then press **Study** on one. Only that course is on the study board until you either **finish** all its topics or **end the session** (for example when priorities change). Ending a session keeps your progress, so you can resume the course later. Pressing Study on another course while one is active asks you to end the current session and switch.
 
 ### Also included
@@ -67,6 +69,7 @@ npm start        # production: one server on :4000 serving the API and the built
 The server enforces the study rules in the database:
 - **WIP limit.** Beginning a course locks the student's courses (`SELECT … FOR UPDATE`) and refuses a second active course (HTTP 409), unless the request asks to switch, which ends the current session in the same transaction.
 - **Completion.** When the last topic of a course on the board is done, the course is marked complete and leaves the board.
+- **Read to the end.** A topic can only move to Done once its progress is 100% (HTTP 409 otherwise).
 - **Ownership.** Topics can only be moved while their course is on the board, and every query is scoped to the signed-in student.
 
 ## API

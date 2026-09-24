@@ -241,7 +241,12 @@ function TopicCard({ topic, color, onMove, onOpen }: TopicCardProps) {
             <button onClick={() => onOpen(topic.id)} className={`${smallBtn} bg-blue-600 text-white hover:bg-blue-700`}>
               <BookOpen className="h-3 w-3" /> Continue
             </button>
-            <button onClick={() => onMove(topic.id, 'done')} className={`${smallBtn} bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300`}>
+            <button
+              onClick={() => onMove(topic.id, 'done')}
+              disabled={topic.progress < 100}
+              title={topic.progress < 100 ? 'Read the topic to 100% to mark it done' : undefined}
+              className={`${smallBtn} bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:bg-emerald-950/40 dark:text-emerald-300 dark:disabled:bg-slate-800 dark:disabled:text-slate-500`}
+            >
               <CheckCircle2 className="h-3 w-3" /> Done
             </button>
           </>

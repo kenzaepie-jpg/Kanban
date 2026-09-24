@@ -140,6 +140,13 @@ async function settleCourse(db: Db, courseId: number): Promise<boolean> {
 }
 
 /** Column changes for moving a topic between Kanban columns. */
+/** A topic can only be marked done once it has been read to the end. */
+function assertReadToEnd(topic: RowDataPacket) {
+  if (topic.status !== 'done' && topic.progress < 100) {
+    throw new HttpError(409, `Read "${topic.title}" to the end first (${topic.progress}% read).`);
+  }
+}
+
 function statusUpdate(topic: RowDataPacket, status: TopicStatus): Record<string, unknown> {
   const now = new Date();
   if (status === 'done') return { status, progress: 100, completed_at: now };
@@ -416,6 +423,7 @@ studyRouter.post(
       const topic = await ownedTopic(conn, req.userId!, topicId, true);
       if (!topic.on_board_at) throw new HttpError(409, 'Put this course on your study board first.');
       if (topic.status === status) return false;
+      if (status === 'done') assertReadToEnd(topic);
       await conn.query('UPDATE topics SET ? WHERE id = ?', [statusUpdate(topic, status), topicId]);
       return settleCourse(conn, topic.course_id);
     });
@@ -431,6 +439,7 @@ studyRouter.post(
     const result = await transaction(async conn => {
       const topic = await ownedTopic(conn, req.userId!, topicId, true);
       if (!topic.on_board_at) throw new HttpError(409, 'Put this course on your study board first.');
+      assertReadToEnd(topic);
       await conn.query('UPDATE topics SET ? WHERE id = ?', [statusUpdate(topic, 'done'), topicId]);
 
       // Prefer another open topic, then the next one not started yet
